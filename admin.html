@@ -1,0 +1,3406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, viewport-fit=cover" />
+  <title>Admin — Swaby's Hope Hideaway</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,500&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.7.3/firebase-app.js';
+    import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, orderBy, where, serverTimestamp } from 'https://www.gstatic.com/firebasejs/11.7.3/firebase-firestore.js';
+    import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'https://www.gstatic.com/firebasejs/11.7.3/firebase-storage.js';
+    import { getAuth, onAuthStateChanged, signOut } from 'https://www.gstatic.com/firebasejs/11.7.3/firebase-auth.js';
+
+    const ADMIN_UID = 'BxvlpyhRr3Wev3GezyQqmtRDDnD2';
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyCxRadGAXnaBOfUHABUPIgG3_XUyH0a1vs",
+      authDomain: "swabys-hope-hideaway.firebaseapp.com",
+      projectId: "swabys-hope-hideaway",
+      storageBucket: "swabys-hope-hideaway.firebasestorage.app",
+      messagingSenderId: "183455042448",
+      appId: "1:183455042448:web:cf2bed23dcb20e578ac115"
+    };
+    /* Local calendar date as YYYY-MM-DD — see note in index.html.
+       toISOString() rolls over to tomorrow after 7pm Jamaica time. */
+    window._localToday = function () {
+      const d = new Date();
+      return d.getFullYear() + '-' +
+             String(d.getMonth() + 1).padStart(2, '0') + '-' +
+             String(d.getDate()).padStart(2, '0');
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const storage = getStorage(app);
+    const auth = getAuth(app);
+
+    window._fb = { db, storage, auth, collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, orderBy, where, serverTimestamp, ref, uploadBytesResumable, getDownloadURL, deleteObject, signOut };
+
+    // Guard so we don't re-run init on auth token refreshes
+    let _dashInitDone = false;
+
+    onAuthStateChanged(auth, user => {
+      const overlay      = document.getElementById('accessOverlay');
+      const accessStatus = document.getElementById('accessStatus');
+      const dashboard    = document.getElementById('dashboard');
+
+      if (!user) {
+        // Not signed in — send them to index to log in
+        accessStatus.textContent = 'No session — Redirecting…';
+        accessStatus.style.color = 'var(--danger)';
+        setTimeout(() => { window.location.href = 'index.html'; }, 1000);
+        return;
+      }
+
+      // Verify UID — only the admin account gets in
+      if (ADMIN_UID !== 'REPLACE_WITH_YOUR_FIREBASE_UID' && user.uid !== ADMIN_UID) {
+        accessStatus.textContent = 'Unauthorised — Redirecting…';
+        accessStatus.style.color = 'var(--danger)';
+        signOut(auth).catch(() => {});
+        setTimeout(() => { window.location.href = 'index.html'; }, 1000);
+        return;
+      }
+
+      // Authorised — reveal dashboard
+      accessStatus.textContent = 'Access Granted ✦';
+      accessStatus.style.color = 'var(--success)';
+      const nameEl = document.getElementById('adminUserName');
+      if (nameEl) { nameEl.textContent = user.displayName || user.email || 'Admin'; nameEl.style.display = 'block'; }
+
+      setTimeout(() => {
+        if (overlay) {
+          overlay.style.transition = 'opacity 0.45s';
+          overlay.style.opacity = '0';
+          setTimeout(() => {
+            overlay.style.display = 'none';
+            if (dashboard) dashboard.style.display = 'flex';
+            if (!_dashInitDone) {
+              _dashInitDone = true;
+              switchTab('bookings');
+              loadAllData();
+            }
+          }, 450);
+        }
+      }, 600);
+    });
+  </script>
+
+  <style>
+/* ═══════════════════════════════════════════════════
+   SWABY'S HOPE HIDEAWAY — Admin Console
+   Dark Luxury · Copper · Cormorant + DM Sans
+═══════════════════════════════════════════════════ */
+:root {
+  --noir:          #090B0F;
+  --noir-soft:     #0D1018;
+  --surface:       #111520;
+  --surface-2:     #161B2A;
+  --card:          #1A2035;
+  --card-hover:    rgba(184,115,51,0.04);
+  --border:        rgba(255,255,255,0.06);
+  --border-copper: rgba(184,115,51,0.18);
+  --copper:        #B87333;
+  --copper-light:  #E8A87C;
+  --copper-deep:   #7A4A1E;
+  --copper-shine:  #D4895A;
+  --copper-glow:   rgba(184,115,51,0.35);
+  --copper-soft:   rgba(184,115,51,0.10);
+  --copper-faint:  rgba(184,115,51,0.05);
+  --text:          #EDE8E0;
+  --text-2:        #A8A09A;
+  --text-dim:      #5A5550;
+  --danger:        #E05050;
+  --danger-soft:   rgba(224,80,80,0.10);
+  --success:       #50C878;
+  --success-soft:  rgba(80,200,120,0.10);
+  --warning:       #E8A030;
+  --warning-soft:  rgba(232,160,48,0.10);
+  --ease:          cubic-bezier(0.16, 1, 0.3, 1);
+  --nav-h:         64px;
+  --drawer-w:      280px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { height: 100%; -webkit-font-smoothing: antialiased; }
+
+body {
+  font-family: 'DM Sans', system-ui, sans-serif;
+  background: var(--noir);
+  color: var(--text);
+  line-height: 1.6;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: hidden;
+}
+
+/* Starfield */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  pointer-events: none; z-index: 0;
+  background-image:
+    radial-gradient(1px 1px at 7% 3%, rgba(184,115,51,0.8) 0%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 19% 6%, rgba(255,255,255,0.35) 0%, transparent 100%),
+    radial-gradient(1px 1px at 33% 2%, rgba(184,115,51,0.6) 0%, transparent 100%),
+    radial-gradient(1px 1px at 47% 5%, rgba(255,255,255,0.25) 0%, transparent 100%),
+    radial-gradient(2px 2px at 61% 3%, rgba(184,115,51,0.9) 0%, transparent 100%),
+    radial-gradient(1px 1px at 74% 7%, rgba(255,255,255,0.3) 0%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 88% 2%, rgba(184,115,51,0.7) 0%, transparent 100%),
+    radial-gradient(1px 1px at 12% 11%, rgba(255,255,255,0.2) 0%, transparent 100%),
+    radial-gradient(1px 1px at 28% 9%, rgba(184,115,51,0.5) 0%, transparent 100%),
+    radial-gradient(1px 1px at 53% 13%, rgba(255,255,255,0.15) 0%, transparent 100%),
+    radial-gradient(2px 2px at 70% 10%, rgba(184,115,51,0.6) 0%, transparent 100%),
+    radial-gradient(1px 1px at 84% 14%, rgba(255,255,255,0.18) 0%, transparent 100%),
+    radial-gradient(1px 1px at 5% 18%, rgba(184,115,51,0.3) 0%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 39% 17%, rgba(255,255,255,0.12) 0%, transparent 100%),
+    radial-gradient(1px 1px at 66% 19%, rgba(184,115,51,0.4) 0%, transparent 100%),
+    radial-gradient(1px 1px at 92% 16%, rgba(255,255,255,0.1) 0%, transparent 100%),
+    radial-gradient(1px 1px at 22% 24%, rgba(184,115,51,0.2) 0%, transparent 100%),
+    radial-gradient(1px 1px at 58% 22%, rgba(255,255,255,0.08) 0%, transparent 100%),
+    radial-gradient(1px 1px at 80% 26%, rgba(184,115,51,0.15) 0%, transparent 100%);
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+}
+
+/* Watermark */
+body::after {
+  content: 'SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · SWABY · ';
+  position: fixed; inset: -20%; width: 140%; height: 140%;
+  font-family: 'Cormorant Garamond', serif; font-weight: 300;
+  font-size: 12px; letter-spacing: 8px; line-height: 5.5;
+  text-transform: uppercase; color: rgba(184,115,51,0.045);
+  transform: rotate(-35deg);
+  pointer-events: none; z-index: 0;
+  word-break: break-all; overflow: hidden; white-space: normal;
+}
+
+img { display: block; max-width: 100%; }
+button { font: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+input, textarea, select { font: inherit; }
+a { color: inherit; text-decoration: none; }
+
+/* ═══ TOPBAR ═══════════════════════════════════════ */
+.topbar {
+  position: fixed; top: 0; left: 0; right: 0;
+  height: var(--nav-h); z-index: 8000;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 1.5rem;
+  background: rgba(9,11,15,0.7);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar-left { display: flex; align-items: center; gap: 1rem; }
+
+.hamburger {
+  width: 40px; height: 40px;
+  display: flex; flex-direction: column;
+  justify-content: center; gap: 5px;
+  padding: 8px;
+  border: 1px solid var(--border-copper);
+  border-radius: 6px;
+  transition: border-color 0.25s, background 0.25s;
+  flex-shrink: 0;
+}
+.hamburger span {
+  display: block; width: 100%; height: 1px;
+  background: var(--text-2);
+  transition: all 0.3s var(--ease);
+}
+.hamburger:hover { border-color: var(--copper); background: var(--copper-faint); }
+.hamburger:hover span { background: var(--copper-shine); }
+
+.topbar-brand {
+  font-family: 'Cormorant Garamond', serif;
+  font-weight: 400; font-size: 1.125rem;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--text);
+}
+.topbar-brand span { color: var(--copper-shine); }
+
+.topbar-right { display: flex; align-items: center; gap: 0.75rem; }
+
+.topbar-page-label {
+  font-size: 0.7rem; font-weight: 600;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--text-dim);
+  display: none;
+}
+@media (min-width: 500px) { .topbar-page-label { display: block; } }
+
+.btn-bookings-topbar {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  padding: 0.5rem 1.125rem;
+  background: linear-gradient(135deg, var(--copper-shine) 0%, var(--copper) 60%, var(--copper-deep) 100%);
+  color: #FFF;
+  font-size: 0.7rem; font-weight: 700;
+  letter-spacing: 0.15em; text-transform: uppercase;
+  border-radius: 4px;
+  border: 1px solid rgba(232,168,124,0.3);
+  box-shadow: 0 0 12px rgba(184,115,51,0.3), 0 2px 8px rgba(184,115,51,0.2);
+  transition: all 0.25s var(--ease);
+  white-space: nowrap;
+}
+.btn-bookings-topbar:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 0 20px rgba(184,115,51,0.5), 0 0 40px rgba(184,115,51,0.15), 0 4px 16px rgba(184,115,51,0.3);
+}
+.btn-bookings-topbar svg { width: 12px; height: 12px; }
+
+.pending-pill {
+  display: none;
+  align-items: center;
+  padding: 0.25rem 0.625rem;
+  background: var(--warning-soft);
+  border: 1px solid rgba(232,160,48,0.25);
+  border-radius: 20px;
+  font-size: 0.65rem; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--warning);
+  white-space: nowrap;
+}
+
+/* ═══ DRAWER SCRIM ══════════════════════════════════ */
+.drawer-scrim {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(4px);
+  z-index: 8998;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.35s;
+}
+.drawer-scrim.show { opacity: 1; pointer-events: auto; }
+
+/* ═══ SIDE DRAWER ═══════════════════════════════════ */
+.drawer {
+  position: fixed; top: 0; left: 0;
+  width: var(--drawer-w); max-width: 85vw;
+  height: 100vh; height: 100dvh;
+  z-index: 8999;
+  overflow-y: auto;
+  padding: calc(var(--nav-h) + 1.5rem) 1.75rem 2.5rem;
+  background:
+    radial-gradient(ellipse 220px 160px at 25% 6%, rgba(184,115,51,0.14) 0%, transparent 65%),
+    radial-gradient(ellipse 160px 240px at 80% 35%, rgba(184,115,51,0.06) 0%, transparent 60%),
+    linear-gradient(175deg, #0A0C12 0%, #0D1018 40%, #090B10 100%);
+  border-right: 1px solid rgba(184,115,51,0.12);
+  box-shadow: 12px 0 60px rgba(0,0,0,0.8), inset -1px 0 0 rgba(184,115,51,0.06);
+  transform: translateX(-100%);
+  transition: transform 0.38s var(--ease);
+  isolation: isolate;
+}
+.drawer::before {
+  content: '';
+  position: absolute; inset: 0; pointer-events: none; z-index: 0;
+  background-image:
+    radial-gradient(1px 1px at 15% 4%, rgba(184,115,51,0.8) 0%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 45% 8%, rgba(255,255,255,0.4) 0%, transparent 100%),
+    radial-gradient(1px 1px at 72% 3%, rgba(184,115,51,0.7) 0%, transparent 100%),
+    radial-gradient(1px 1px at 88% 12%, rgba(255,255,255,0.3) 0%, transparent 100%),
+    radial-gradient(2px 2px at 30% 16%, rgba(184,115,51,0.6) 0%, transparent 100%),
+    radial-gradient(1px 1px at 60% 20%, rgba(255,255,255,0.2) 0%, transparent 100%),
+    radial-gradient(1px 1px at 20% 28%, rgba(184,115,51,0.35) 0%, transparent 100%),
+    radial-gradient(1px 1px at 75% 32%, rgba(255,255,255,0.15) 0%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 50% 40%, rgba(184,115,51,0.25) 0%, transparent 100%),
+    radial-gradient(1px 1px at 10% 45%, rgba(255,255,255,0.1) 0%, transparent 100%),
+    radial-gradient(1px 1px at 85% 50%, rgba(184,115,51,0.18) 0%, transparent 100%);
+}
+.drawer.show { transform: translateX(0); }
+.drawer > * { position: relative; z-index: 1; }
+
+.drawer-close {
+  position: absolute; top: calc(var(--nav-h) - 28px); right: 1.25rem;
+  width: 34px; height: 34px; border-radius: 50%;
+  border: 1px solid var(--border-copper);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; color: var(--text-2);
+  transition: all 0.25s;
+}
+.drawer-close:hover { border-color: var(--copper); color: var(--copper-shine); background: var(--copper-faint); }
+
+.drawer-brand {
+  text-align: center;
+  margin-bottom: 1.75rem;
+  padding-bottom: 1.5rem;
+  position: relative;
+}
+.drawer-brand::after {
+  content: '';
+  position: absolute; bottom: 0; left: 25%; right: 25%; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--copper-shine), transparent);
+}
+.drawer-brand-name {
+  font-family: 'Cormorant Garamond', serif;
+  font-weight: 300; font-size: 1.375rem;
+  letter-spacing: 0.25em; text-transform: uppercase;
+  color: var(--text); margin-bottom: 4px;
+}
+.drawer-brand-sub {
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic; font-size: 0.75rem;
+  letter-spacing: 0.15em; color: var(--copper-shine);
+  text-transform: uppercase;
+}
+
+.drawer-section-label {
+  font-size: 0.6rem; font-weight: 700;
+  letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--text-dim);
+  margin: 1.25rem 0 0.5rem;
+}
+
+.nav-link {
+  display: flex; align-items: center; gap: 0;
+  width: 100%;
+  color: rgba(232,226,218,0.6);
+  font-size: 0.7rem; font-weight: 600;
+  letter-spacing: 0.2em; text-transform: uppercase;
+  padding: 0.875rem 0;
+  border-bottom: 1px solid rgba(184,115,51,0.06);
+  cursor: pointer;
+  transition: color 0.25s, padding-left 0.3s var(--ease), border-color 0.25s;
+  background: none; text-align: left;
+  position: relative;
+}
+.nav-link::before {
+  content: '';
+  display: inline-block; width: 0; height: 1px;
+  background: var(--copper-shine);
+  margin-right: 0;
+  transition: width 0.3s var(--ease), margin-right 0.3s var(--ease);
+  flex-shrink: 0;
+}
+.nav-link:hover, .nav-link.active {
+  color: var(--copper-shine);
+  padding-left: 4px;
+  border-bottom-color: rgba(184,115,51,0.15);
+}
+.nav-link:hover::before, .nav-link.active::before {
+  width: 14px; margin-right: 10px;
+}
+.nav-link.active { color: var(--copper-light); }
+
+.drawer-divider {
+  height: 1px; margin: 1rem 0;
+  background: linear-gradient(90deg, transparent, rgba(184,115,51,0.2), transparent);
+}
+
+.drawer-signout {
+  margin-top: 2rem;
+  display: block; width: 100%;
+  text-align: center;
+  font-size: 0.65rem; font-weight: 600;
+  letter-spacing: 0.2em; text-transform: uppercase;
+  padding: 0.875rem;
+  color: var(--text-dim);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 4px;
+  transition: all 0.25s;
+}
+.drawer-signout:hover { color: var(--danger); border-color: rgba(224,80,80,0.2); background: var(--danger-soft); }
+
+/* ═══ MAIN DASHBOARD AREA ══════════════════════════ */
+#dashboard {
+  display: none;
+  flex-direction: column;
+  min-height: 100vh;
+  position: relative; z-index: 1;
+}
+
+.dash-main {
+  margin-top: var(--nav-h);
+  padding: 2rem 1.5rem 4rem;
+  max-width: 1200px;
+  width: 100%;
+  margin-left: auto; margin-right: auto;
+}
+
+.dash-section { display: none; }
+.dash-section.active { display: block; }
+
+/* ═══ SECTION HEADER ════════════════════════════════ */
+.section-header {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  margin-bottom: 2rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--border-copper);
+  gap: 1rem;
+}
+.section-eyebrow {
+  font-size: 0.6rem; font-weight: 600;
+  letter-spacing: 0.25em; text-transform: uppercase;
+  color: var(--copper-shine); margin-bottom: 0.375rem;
+}
+.section-eyebrow::before {
+  content: '— ';
+  opacity: 0.5;
+}
+.section-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-weight: 400; font-size: 1.75rem;
+  letter-spacing: 0.04em; color: var(--text);
+  line-height: 1.2;
+}
+
+/* ═══ BUTTONS ═══════════════════════════════════════ */
+.btn {
+  display: inline-flex; align-items: center; gap: 0.375rem;
+  padding: 0.625rem 1.25rem;
+  border-radius: 4px;
+  font-size: 0.7rem; font-weight: 700;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  transition: all 0.25s var(--ease);
+}
+.btn-copper {
+  background: linear-gradient(135deg, var(--copper-shine), var(--copper));
+  color: white;
+  border: 1px solid rgba(232,168,124,0.25);
+  box-shadow: 0 2px 12px rgba(184,115,51,0.2);
+}
+.btn-copper:hover {
+  background: linear-gradient(135deg, var(--copper-light), var(--copper-shine));
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px rgba(184,115,51,0.35);
+}
+.btn-outline {
+  border: 1px solid var(--border-copper);
+  color: var(--text-2);
+  background: transparent;
+}
+.btn-outline:hover { border-color: var(--copper); color: var(--copper-shine); }
+.btn-danger {
+  color: var(--danger); border: 1px solid rgba(224,80,80,0.2);
+  background: var(--danger-soft);
+}
+.btn-danger:hover { background: rgba(224,80,80,0.18); }
+.btn-sm { padding: 0.375rem 0.75rem; font-size: 0.65rem; }
+
+/* ═══ FORM ══════════════════════════════════════════ */
+.form-group { margin-bottom: 1.125rem; }
+.form-label {
+  display: block;
+  font-size: 0.65rem; font-weight: 700;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--text-dim); margin-bottom: 0.4rem;
+}
+.form-input, .form-textarea, .form-select {
+  width: 100%; padding: 0.625rem 0.875rem;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border-copper);
+  border-radius: 4px;
+  font-size: 0.875rem; color: var(--text);
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.form-input:focus, .form-textarea:focus, .form-select:focus {
+  border-color: var(--copper);
+  box-shadow: 0 0 0 3px rgba(184,115,51,0.1);
+  background: rgba(184,115,51,0.03);
+}
+.form-input::placeholder, .form-textarea::placeholder { color: var(--text-dim); }
+.form-textarea { min-height: 80px; resize: vertical; }
+.form-select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23B87333' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center;
+  background-color: rgba(255,255,255,0.03);
+  padding-right: 36px;
+}
+.form-select option { background: var(--surface); color: var(--text); }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+@media (max-width: 480px) { .form-row { grid-template-columns: 1fr; } }
+
+/* ═══ IMAGE UPLOAD ══════════════════════════════════ */
+.img-upload-zone {
+  border: 1px dashed var(--border-copper); border-radius: 6px;
+  padding: 1.75rem; text-align: center; cursor: pointer;
+  position: relative;
+  background: var(--copper-faint);
+  transition: border-color 0.2s, background 0.2s;
+}
+.img-upload-zone:hover { border-color: var(--copper); background: rgba(184,115,51,0.07); }
+.img-upload-zone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.img-upload-zone .label { font-size: 0.75rem; color: var(--text-dim); }
+.img-upload-zone .label strong { color: var(--copper-shine); }
+.img-preview { margin-top: 0.75rem; border-radius: 4px; max-height: 130px; object-fit: cover; width: 100%; }
+.progress-bar { width: 100%; height: 2px; background: var(--border); border-radius: 2px; margin-top: 0.5rem; overflow: hidden; display: none; }
+.progress-bar-fill { height: 100%; background: linear-gradient(90deg, var(--copper-shine), var(--copper)); transition: width 0.3s; width: 0%; }
+
+/* ═══ ITEM CARDS ════════════════════════════════════ */
+.items-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.25rem; }
+
+.item-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px; overflow: hidden;
+  transition: box-shadow 0.3s, border-color 0.3s, transform 0.3s;
+}
+.item-card:hover {
+  border-color: var(--border-copper);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(184,115,51,0.1);
+  transform: translateY(-2px);
+}
+.item-card-img { aspect-ratio: 16/10; overflow: hidden; background: #070910; }
+.item-card-img img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.5s; }
+.item-card:hover .item-card-img img { transform: scale(1.04); }
+.item-card-img .no-img {
+  height: 100%; display: flex; align-items: center; justify-content: center;
+  color: var(--text-dim); font-size: 0.75rem; letter-spacing: 0.08em;
+}
+.item-card-body { padding: 0.875rem 1rem 0.25rem; }
+.item-card-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 1.0625rem; font-weight: 500; color: var(--text);
+  margin-bottom: 0.25rem; line-height: 1.3;
+}
+.item-card-meta { font-size: 0.75rem; color: var(--text-dim); line-height: 1.5; }
+.item-card-actions {
+  display: flex; gap: 0.5rem;
+  padding: 0.625rem 1rem 0.875rem;
+  border-top: 1px solid var(--border);
+  margin-top: 0.75rem;
+}
+
+/* Capacity stat card variant */
+.stat-card {
+  background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+  padding: 1.5rem 1.25rem; text-align: center;
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+.stat-card:hover { border-color: var(--border-copper); box-shadow: 0 0 20px rgba(184,115,51,0.1); }
+.stat-card-value {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 2.5rem; font-weight: 400; color: var(--copper-shine);
+  line-height: 1; margin-bottom: 0.375rem;
+}
+.stat-card-label {
+  font-size: 0.65rem; font-weight: 600; letter-spacing: 0.2em;
+  text-transform: uppercase; color: var(--text-dim);
+  margin-bottom: 1rem;
+}
+.stat-card-actions { display: flex; gap: 0.5rem; justify-content: center; }
+
+/* ═══ BOOKINGS TABLE ════════════════════════════════ */
+.bookings-wrap {
+  border: 1px solid var(--border-copper); border-radius: 8px; overflow: hidden;
+  background: var(--card);
+}
+.bookings-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
+.bookings-table thead tr {
+  background: rgba(184,115,51,0.06);
+  border-bottom: 1px solid var(--border-copper);
+}
+.bookings-table th {
+  padding: 0.875rem 1rem; text-align: left;
+  font-size: 0.6rem; font-weight: 700; letter-spacing: 0.2em;
+  text-transform: uppercase; color: var(--copper-shine);
+  white-space: nowrap;
+}
+.bookings-table tbody tr { border-bottom: 1px solid var(--border); transition: background 0.15s; }
+.bookings-table tbody tr:last-child { border-bottom: none; }
+.bookings-table tbody tr:hover { background: var(--card-hover); }
+.bookings-table td { padding: 0.875rem 1rem; color: var(--text-2); vertical-align: middle; }
+.bookings-table td:first-child {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 0.9375rem; color: var(--text); font-weight: 500;
+}
+.status-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 10px; border-radius: 20px;
+  font-size: 0.6rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+}
+.status-pill::before { content: ''; width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+.st-pending   { background: var(--warning-soft); color: var(--warning); }
+.st-confirmed { background: var(--success-soft); color: var(--success); }
+.st-cancelled { background: rgba(224,80,80,0.08); color: var(--danger); }
+
+/* Mobile bookings card view */
+.booking-cards { display: none; }
+.booking-card {
+  background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+  padding: 1rem 1.125rem; margin-bottom: 0.75rem;
+  border-left: 2px solid var(--copper);
+}
+.booking-card-name {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 1rem; font-weight: 500; color: var(--text); margin-bottom: 0.5rem;
+}
+.booking-card-row {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 0.75rem; color: var(--text-dim);
+  margin-bottom: 0.25rem;
+}
+.booking-card-row span:last-child { color: var(--text-2); }
+
+@media (max-width: 640px) {
+  .bookings-wrap { display: none; }
+  .booking-cards { display: block; }
+}
+
+/* ═══ SERVICE REQUESTS ══════════════════════════════ */
+.req-toolbar {
+  display: flex; flex-wrap: wrap; gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+.req-chip {
+  padding: 0.5rem 1rem; border-radius: 999px;
+  border: 1px solid var(--border-copper);
+  font-size: 0.62rem; font-weight: 700;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--text-2); background: transparent;
+  transition: all 0.25s var(--ease); white-space: nowrap;
+}
+.req-chip:hover { border-color: var(--copper); color: var(--copper-shine); }
+.req-chip.active {
+  background: linear-gradient(135deg, var(--copper-shine), var(--copper) 60%, var(--copper-deep));
+  color: #fff; border-color: rgba(232,168,124,0.35);
+  box-shadow: 0 0 12px rgba(184,115,51,0.25);
+}
+.req-chip .cnt {
+  display: inline-block; margin-left: 6px; opacity: 0.7;
+  font-size: 0.6rem;
+}
+
+.req-grid {
+  display: grid; gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  align-items: start;
+}
+.req-card {
+  border: 1px solid var(--border-copper);
+  border-left: 3px solid var(--copper);
+  border-radius: 10px;
+  background: var(--surface-2);
+  padding: 1.125rem 1.125rem 1rem;
+  display: flex; flex-direction: column;
+  transition: border-color 0.25s, transform 0.25s var(--ease);
+  min-width: 0;
+}
+.req-card:hover { border-color: rgba(184,115,51,0.4); }
+.req-card.is-new { border-left-color: var(--warning); }
+.req-card.is-confirmed { border-left-color: var(--success); }
+.req-card.is-declined { border-left-color: var(--danger); opacity: 0.72; }
+.req-card.is-inprogress { border-left-color: #4A90D9; }
+
+.req-card-top {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 0.75rem; margin-bottom: 0.75rem;
+}
+.req-service {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 1.15rem; font-weight: 500;
+  color: var(--text); line-height: 1.25;
+  letter-spacing: 0.02em;
+  overflow-wrap: anywhere;
+}
+.req-when {
+  font-size: 0.62rem; color: var(--text-dim);
+  letter-spacing: 0.08em; text-transform: uppercase;
+  margin-top: 3px;
+}
+.req-guest {
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 0.7rem 0; margin-bottom: 0.75rem;
+}
+.req-row {
+  display: flex; justify-content: space-between; align-items: baseline;
+  gap: 0.75rem; font-size: 0.73rem; margin-bottom: 0.3rem;
+}
+.req-row:last-child { margin-bottom: 0; }
+.req-row > span:first-child {
+  color: var(--text-dim); flex-shrink: 0;
+  font-size: 0.66rem; letter-spacing: 0.08em; text-transform: uppercase;
+}
+.req-row > span:last-child {
+  color: var(--text-2); text-align: right;
+  overflow-wrap: anywhere; min-width: 0;
+}
+.req-row a { color: var(--copper-shine); }
+.req-notes {
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic; font-size: 0.92rem; line-height: 1.55;
+  color: var(--text-2);
+  background: rgba(184,115,51,0.04);
+  border-left: 2px solid var(--border-copper);
+  padding: 0.55rem 0.75rem; border-radius: 0 6px 6px 0;
+  margin-bottom: 0.75rem; overflow-wrap: anywhere;
+}
+.req-internal {
+  background: rgba(232,160,48,0.05);
+  border-left: 2px solid var(--warning);
+  padding: 0.55rem 0.75rem; border-radius: 0 6px 6px 0;
+  margin-bottom: 0.75rem; font-size: 0.74rem;
+  color: var(--text-2); line-height: 1.55; overflow-wrap: anywhere;
+}
+.req-internal strong {
+  display: block; font-size: 0.6rem; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--warning); margin-bottom: 0.2rem;
+}
+.req-source {
+  display: inline-block; align-self: flex-start;
+  font-size: 0.58rem; font-weight: 700;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--copper-shine); background: var(--copper-soft);
+  border: 1px solid var(--border-copper);
+  padding: 3px 9px; border-radius: 20px; margin-bottom: 0.75rem;
+}
+.addon-tag {
+  display: inline-block;
+  font-size: 0.58rem; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--copper-shine); background: var(--copper-soft);
+  border: 1px solid var(--border-copper);
+  padding: 2px 8px; border-radius: 20px;
+  margin: 0 4px 4px 0; white-space: nowrap;
+}
+.req-actions {
+  display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: auto;
+  padding-top: 0.25rem;
+}
+.req-actions .btn { flex: 1 1 auto; justify-content: center; min-width: 0; }
+
+.st-new        { background: var(--warning-soft); color: var(--warning); }
+.st-inprogress { background: rgba(74,144,217,0.12); color: #7FB3E8; }
+.st-declined   { background: rgba(224,80,80,0.08); color: var(--danger); }
+
+.nav-badge {
+  display: none; margin-left: auto;
+  min-width: 20px; height: 20px; padding: 0 6px;
+  border-radius: 999px; background: var(--copper);
+  color: #fff; font-size: 0.62rem; font-weight: 700;
+  align-items: center; justify-content: center;
+  line-height: 1;
+}
+.nav-link { display: flex; align-items: center; gap: 0.5rem; }
+
+/* ═══ MOBILE POLISH ═════════════════════════════════ */
+@media (max-width: 900px) {
+  .dash-main { padding: 1.75rem 1.25rem 3.5rem; }
+  .req-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 640px) {
+  .topbar { padding: 0 0.875rem; gap: 0.5rem; }
+  .topbar-left { gap: 0.625rem; min-width: 0; }
+  .topbar-right { gap: 0.5rem; flex-shrink: 0; }
+  .topbar-brand { font-size: 0.95rem; letter-spacing: 0.08em; white-space: nowrap; }
+  .hamburger { width: 36px; height: 36px; padding: 7px; gap: 4px; }
+  .btn-bookings-topbar { padding: 0.45rem 0.7rem; font-size: 0.6rem; letter-spacing: 0.08em; gap: 0.35rem; }
+  .btn-bookings-topbar svg { width: 13px; height: 13px; }
+
+  .dash-main { padding: 1.25rem 0.875rem 3.5rem; }
+
+  .section-header {
+    flex-direction: column; align-items: stretch;
+    gap: 0.875rem; margin-bottom: 1.375rem; padding-bottom: 1rem;
+  }
+  .section-header > .btn,
+  .section-header > div > .btn { width: 100%; justify-content: center; }
+  .section-title { font-size: 1.4rem; }
+  .section-eyebrow { font-size: 0.55rem; letter-spacing: 0.2em; }
+
+  .req-toolbar {
+    gap: 0.4rem; margin-bottom: 1.125rem;
+    overflow-x: auto; flex-wrap: nowrap;
+    padding-bottom: 0.4rem;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .req-toolbar::-webkit-scrollbar { display: none; }
+  .req-chip { padding: 0.45rem 0.8rem; font-size: 0.58rem; letter-spacing: 0.1em; }
+
+  .req-card { padding: 1rem; border-radius: 9px; }
+  .req-service { font-size: 1.05rem; }
+  .req-actions .btn { flex: 1 1 45%; font-size: 0.6rem; padding: 0.55rem 0.5rem; letter-spacing: 0.08em; }
+
+  .booking-card { padding: 1rem; }
+  .booking-card-row { font-size: 0.72rem; }
+
+  .modal { border-radius: 12px; max-height: 92vh; }
+  .modal-header { padding: 1.1rem 1.1rem; }
+  .modal-header h3 { font-size: 1.1rem; }
+  .modal-body { padding: 1.1rem; }
+  .modal-footer { padding: 0.875rem 1.1rem; flex-direction: column-reverse; gap: 0.5rem; }
+  .modal-footer .btn { width: 100%; justify-content: center; }
+  .modal-overlay { padding: 0.625rem; }
+
+  .items-grid { grid-template-columns: 1fr !important; }
+  .empty-state { padding: 2.5rem 1rem; font-size: 0.9rem; }
+}
+
+@media (max-width: 380px) {
+  .topbar-brand { font-size: 0.85rem; }
+  .btn-bookings-topbar span,
+  .pending-pill { font-size: 0.56rem; }
+  .dash-main { padding: 1.125rem 0.7rem 3rem; }
+  .section-title { font-size: 1.25rem; }
+}
+
+/* ═══ MODAL ═════════════════════════════════════════ */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.7); backdrop-filter: blur(8px);
+  z-index: 9000; display: none;
+  align-items: center; justify-content: center; padding: 1rem;
+}
+.modal-overlay.open { display: flex; }
+
+.modal {
+  background: var(--surface-2);
+  border: 1px solid var(--border-copper);
+  border-radius: 10px; max-width: 540px; width: 100%;
+  max-height: 88vh; overflow-y: auto;
+  box-shadow: 0 32px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(184,115,51,0.08);
+}
+.modal-header {
+  padding: 1.375rem 1.5rem;
+  border-bottom: 1px solid var(--border-copper);
+  display: flex; align-items: center; justify-content: space-between;
+  background: rgba(184,115,51,0.04);
+}
+.modal-header h3 {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 1.25rem; font-weight: 400;
+  letter-spacing: 0.06em; color: var(--text);
+}
+.modal-close {
+  width: 30px; height: 30px; border-radius: 50%;
+  border: 1px solid var(--border-copper);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; color: var(--text-2);
+  transition: all 0.2s; line-height: 1;
+}
+.modal-close:hover { border-color: var(--danger); color: var(--danger); background: var(--danger-soft); }
+.modal-body { padding: 1.5rem; }
+.modal-footer {
+  padding: 1rem 1.5rem; border-top: 1px solid var(--border);
+  display: flex; justify-content: flex-end; gap: 0.625rem;
+  background: rgba(0,0,0,0.15);
+}
+
+/* ═══ EMPTY STATE ═══════════════════════════════════ */
+.empty-state {
+  text-align: center; padding: 4rem 2rem;
+  color: var(--text-dim);
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic; font-size: 1rem; letter-spacing: 0.04em;
+}
+.empty-state::before { content: '— '; color: var(--copper-shine); opacity: 0.5; }
+.empty-state::after  { content: ' —'; color: var(--copper-shine); opacity: 0.5; }
+
+/* ═══ PROMOTIONS ════════════════════════════════════ */
+.promo-type-row {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0.625rem;
+  margin-bottom: 1rem;
+}
+.promo-type-opt {
+  padding: 0.625rem 1rem; border-radius: 4px;
+  border: 1px solid var(--border-copper);
+  font-size: 0.7rem; font-weight: 700;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--text-2); text-align: center; cursor: pointer;
+  transition: all 0.2s;
+}
+.promo-type-opt:hover { border-color: var(--copper); color: var(--copper-shine); }
+.promo-type-opt.selected {
+  background: var(--copper-soft);
+  border-color: var(--copper);
+  color: var(--copper-shine);
+  box-shadow: 0 0 0 1px rgba(184,115,51,0.15);
+}
+
+.promo-card {
+  background: var(--card); border: 1px solid var(--border);
+  border-left: 3px solid var(--copper);
+  border-radius: 8px; padding: 1.125rem 1.25rem;
+  margin-bottom: 0.75rem; position: relative;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.promo-card:hover { border-color: var(--border-copper); box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+.promo-card.paused { border-left-color: var(--text-dim); opacity: 0.7; }
+.promo-card.expired { border-left-color: var(--text-dim); opacity: 0.5; }
+
+.promo-status-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 20px;
+  font-size: 0.6rem; font-weight: 700; letter-spacing: 0.12em;
+  text-transform: uppercase; margin-bottom: 0.625rem;
+}
+.promo-status-badge.live { background: rgba(80,200,120,0.08); color: var(--success); border: 1px solid rgba(80,200,120,0.2); }
+.promo-status-badge.paused { background: var(--copper-faint); color: var(--text-dim); border: 1px solid var(--border-copper); }
+.promo-status-badge.expired { background: transparent; color: var(--text-dim); border: 1px solid var(--border); }
+.promo-status-badge.scheduled { background: var(--warning-soft); color: var(--warning); border: 1px solid rgba(232,160,48,0.2); }
+
+.promo-card-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 1.0625rem; font-weight: 500; color: var(--text);
+  margin-bottom: 0.25rem;
+}
+.promo-card-discount {
+  font-size: 0.7rem; font-weight: 700; letter-spacing: 0.1em;
+  color: var(--copper-shine); text-transform: uppercase; margin-bottom: 0.375rem;
+}
+.promo-card-desc { font-size: 0.8rem; color: var(--text-2); line-height: 1.5; margin-bottom: 0.5rem; }
+.promo-card-dates { font-size: 0.7rem; color: var(--text-dim); margin-bottom: 0.75rem; }
+.promo-card-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+.section-divider {
+  display: flex; align-items: center; gap: 0.75rem;
+  margin: 1.75rem 0 1.25rem;
+  font-size: 0.6rem; font-weight: 700;
+  letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--copper-shine);
+}
+.section-divider::before, .section-divider::after {
+  content: ''; flex: 1; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(184,115,51,0.25));
+}
+.section-divider::after { background: linear-gradient(90deg, rgba(184,115,51,0.25), transparent); }
+
+.toggle-row {
+  display: flex; align-items: center; gap: 0.875rem;
+  background: var(--copper-faint); border: 1px solid var(--border-copper);
+  border-radius: 6px; padding: 0.875rem 1rem; margin-bottom: 1rem;
+}
+.toggle-switch {
+  position: relative; display: inline-block;
+  width: 40px; height: 22px; flex-shrink: 0;
+}
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-slider {
+  position: absolute; inset: 0; cursor: pointer;
+  background: var(--surface-2); border-radius: 22px;
+  border: 1px solid var(--border-copper);
+  transition: background 0.3s, border-color 0.3s;
+}
+.toggle-slider::before {
+  content: ''; position: absolute;
+  height: 14px; width: 14px; border-radius: 50%;
+  left: 3px; bottom: 3px; background: var(--text-dim);
+  transition: transform 0.3s, background 0.3s;
+}
+.toggle-switch input:checked + .toggle-slider { background: var(--copper-soft); border-color: var(--copper); }
+.toggle-switch input:checked + .toggle-slider::before { transform: translateX(18px); background: var(--copper-shine); }
+
+/* ═══ DRAG-REORDER LIST ════════════════════════════ */
+.drag-list { display: flex; flex-direction: column; gap: 0.625rem; }
+.drag-item {
+  display: flex; align-items: center; gap: 0.75rem;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 8px; padding: 0.75rem 1rem;
+  cursor: grab; user-select: none;
+  transition: border-color 0.2s, box-shadow 0.2s, opacity 0.2s;
+}
+.drag-item:hover { border-color: var(--border-copper); box-shadow: 0 4px 16px rgba(0,0,0,0.25); }
+.drag-item.dragging { opacity: 0.4; cursor: grabbing; }
+.drag-item.drag-over { border-color: var(--copper); box-shadow: 0 0 0 2px rgba(184,115,51,0.25); }
+.drag-handle {
+  color: var(--text-dim); flex-shrink: 0; cursor: grab;
+  display: flex; flex-direction: column; gap: 3px; padding: 2px;
+}
+.drag-handle span { display: block; width: 18px; height: 2px; background: currentColor; border-radius: 1px; }
+.drag-item-img {
+  width: 56px; height: 44px; border-radius: 5px;
+  object-fit: cover; flex-shrink: 0; background: #070910;
+}
+.drag-item-body { flex: 1; min-width: 0; }
+.drag-item-title { font-size: 0.85rem; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+.drag-item-meta  { font-size: 0.72rem; color: var(--text-dim); }
+.drag-item-actions { display: flex; gap: 0.5rem; flex-shrink: 0; }
+
+/* ═══ MULTI-IMAGE GALLERY ══════════════════════════ */
+.multi-img-list {
+  display: flex; flex-direction: column; gap: 0.625rem;
+  margin-top: 0.75rem;
+}
+.multi-img-item {
+  display: flex; align-items: center; gap: 0.75rem;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 6px; padding: 0.5rem 0.625rem;
+  transition: border-color 0.2s, box-shadow 0.2s, opacity 0.2s;
+  cursor: grab; user-select: none;
+}
+.multi-img-item:hover { border-color: var(--border-copper); }
+.multi-img-item.dragging { opacity: 0.4; cursor: grabbing; }
+.multi-img-item.drag-over { border-color: var(--copper); box-shadow: 0 0 0 2px rgba(184,115,51,0.25); }
+.multi-img-cover-badge {
+  font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--copper-shine); background: var(--copper-soft); border: 1px solid var(--border-copper);
+  border-radius: 4px; padding: 2px 6px; flex-shrink: 0;
+}
+.multi-img-thumb {
+  width: 56px; height: 40px; border-radius: 4px;
+  object-fit: cover; background: #070910; flex-shrink: 0;
+}
+.multi-img-name {
+  flex: 1; font-size: 0.75rem; color: var(--text-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.multi-img-remove {
+  width: 26px; height: 26px; flex-shrink: 0;
+  border-radius: 50%; border: 1px solid rgba(224,80,80,0.25);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; color: var(--danger); line-height: 1;
+  transition: all 0.2s;
+}
+.multi-img-remove:hover { background: var(--danger-soft); border-color: var(--danger); }
+
+/* Admin preview slideshow */
+.admin-slide-preview {
+  position: relative; aspect-ratio: 16/10;
+  overflow: hidden; background: #070910; border-radius: 6px;
+}
+.admin-slide-preview img {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%; object-fit: cover;
+  opacity: 0; transition: opacity 0.5s ease;
+}
+.admin-slide-preview img.active { opacity: 1; }
+.admin-slide-dots {
+  position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 5px;
+}
+.admin-slide-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: rgba(255,255,255,0.4); transition: background 0.3s;
+  cursor: pointer; border: none;
+}
+.admin-slide-dot.active { background: var(--copper-shine); }
+
+/* ═══ TOAST ═════════════════════════════════════════ */
+.toast {
+  position: fixed; bottom: 1.5rem; right: 1.5rem;
+  background: linear-gradient(135deg, var(--copper-shine), var(--copper));
+  color: white; padding: 0.75rem 1.5rem;
+  border-radius: 4px; font-size: 0.75rem; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  box-shadow: 0 8px 24px rgba(184,115,51,0.35), 0 0 0 1px rgba(232,168,124,0.2);
+  z-index: 9999; opacity: 0; transform: translateY(12px) scale(0.96);
+  transition: all 0.35s var(--ease);
+  pointer-events: none;
+}
+.toast.show { opacity: 1; transform: translateY(0) scale(1); }
+  </style>
+</head>
+<body>
+
+<!-- ACCESS OVERLAY — shown while Firebase resolves auth; redirects to index.html if no session -->
+<div id="accessOverlay" style="position:fixed;inset:0;z-index:99999;background:linear-gradient(160deg,#090B0F 0%,#0D1018 50%,#090B10 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;">
+  <!-- Starfield dots -->
+  <div style="position:absolute;inset:0;pointer-events:none;background-image:radial-gradient(1px 1px at 7% 3%,rgba(184,115,51,0.8) 0%,transparent 100%),radial-gradient(1.5px 1.5px at 19% 6%,rgba(255,255,255,0.35) 0%,transparent 100%),radial-gradient(1px 1px at 33% 2%,rgba(184,115,51,0.6) 0%,transparent 100%),radial-gradient(2px 2px at 61% 3%,rgba(184,115,51,0.9) 0%,transparent 100%),radial-gradient(1px 1px at 74% 7%,rgba(255,255,255,0.3) 0%,transparent 100%),radial-gradient(1.5px 1.5px at 88% 2%,rgba(184,115,51,0.7) 0%,transparent 100%);background-size:100% 100%;background-repeat:no-repeat;"></div>
+  <div style="position:relative;z-index:1;text-align:center;">
+    <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:0.75rem;letter-spacing:0.3em;color:var(--copper-shine);text-transform:uppercase;margin-bottom:1.25rem;">Swaby's Hope Hideaway</div>
+    <div style="font-family:'Cormorant Garamond',serif;font-weight:400;font-size:2.5rem;letter-spacing:0.05em;color:#EDE8E0;margin-bottom:0.75rem;">Checking Access</div>
+    <div style="width:48px;height:1px;background:linear-gradient(90deg,transparent,var(--copper-shine),transparent);margin:0 auto 1.5rem;"></div>
+    <div style="display:flex;gap:10px;justify-content:center;margin-bottom:1.5rem;">
+      <span style="width:6px;height:6px;border-radius:50%;background:var(--copper-shine);animation:dotpulse 1.2s ease-in-out infinite;display:inline-block;"></span>
+      <span style="width:6px;height:6px;border-radius:50%;background:var(--copper-shine);animation:dotpulse 1.2s ease-in-out 0.4s infinite;display:inline-block;"></span>
+      <span style="width:6px;height:6px;border-radius:50%;background:var(--copper-shine);animation:dotpulse 1.2s ease-in-out 0.8s infinite;display:inline-block;"></span>
+    </div>
+    <div id="accessStatus" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.2em;text-transform:uppercase;color:var(--text-dim);">Verifying identity…</div>
+  </div>
+</div>
+<style>
+  @keyframes dotpulse {
+    0%,100%{opacity:0.2;transform:scale(0.8);}
+    50%{opacity:1;transform:scale(1.2);}
+  }
+</style>
+
+<!-- DRAWER SCRIM -->
+<div class="drawer-scrim" id="drawerScrim" onclick="closeDrawer()"></div>
+
+<!-- SIDE DRAWER -->
+<nav class="drawer" id="drawer">
+  <button class="drawer-close" onclick="closeDrawer()">&#215;</button>
+  <div class="drawer-brand">
+    <div class="drawer-brand-name">Swaby's Hope</div>
+    <div class="drawer-brand-sub">Hideaway · Admin</div>
+  </div>
+
+  <div class="drawer-section-label">Operations</div>
+  <button class="nav-link active" onclick="switchTab('bookings');closeDrawer()">Bookings</button>
+  <button class="nav-link" onclick="switchTab('requests');closeDrawer()">Service Requests<span class="nav-badge" id="reqNavBadge">0</span></button>
+  <button class="nav-link" onclick="switchTab('promotions');closeDrawer()">Promotions</button>
+
+  <div class="drawer-divider"></div>
+  <div class="drawer-section-label">Content</div>
+  <button class="nav-link" onclick="switchTab('features');closeDrawer()">Feature Cards</button>
+  <button class="nav-link" onclick="switchTab('rooms');closeDrawer()">Rooms</button>
+  <button class="nav-link" onclick="switchTab('events');closeDrawer()">Events &amp; Weddings</button>
+  <button class="nav-link" onclick="switchTab('capacity');closeDrawer()">Capacity Stats</button>
+  <button class="nav-link" onclick="switchTab('pageimages');closeDrawer()">Page Images</button>
+
+  <button class="drawer-signout" onclick="handleLogout()">Sign Out</button>
+</nav>
+
+<!-- TOPBAR -->
+<header class="topbar">
+  <div class="topbar-left">
+    <button class="hamburger" onclick="openDrawer()" aria-label="Open menu">
+      <span></span><span></span><span></span>
+    </button>
+    <div class="topbar-brand">Swaby's <span>Admin</span></div>
+  </div>
+  <div class="topbar-right">
+    <div class="pending-pill" id="pendingPill">
+      <span id="pendingText">0 pending</span>
+    </div>
+    <span class="topbar-page-label" id="topbarLabel">Bookings</span>
+    <span id="adminUserName" style="font-size:0.7rem;color:var(--text-dim);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:none;" class="topbar-page-label"></span>
+    <button class="btn-bookings-topbar" onclick="switchTab('bookings')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+        <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+      </svg>
+      Bookings
+    </button>
+  </div>
+</header>
+
+<!-- DASHBOARD -->
+<div id="dashboard" style="display:none;">
+  <main class="dash-main">
+
+    <!-- FEATURES -->
+    <div class="dash-section" id="tab-features">
+      <div class="section-header">
+        <div>
+          <div class="section-eyebrow">Homepage</div>
+          <h2 class="section-title">Feature Cards</h2>
+        </div>
+        <button class="btn btn-copper" onclick="openFeatureModal()">Add Feature</button>
+      </div>
+      <div class="items-grid" id="featuresList"></div>
+    </div>
+
+    <!-- ROOMS -->
+    <div class="dash-section" id="tab-rooms">
+      <div class="section-header">
+        <div>
+          <div class="section-eyebrow">Accommodation</div>
+          <h2 class="section-title">Rooms</h2>
+        </div>
+        <button class="btn btn-copper" onclick="openRoomModal()">Add Room</button>
+      </div>
+      <div style="font-size:0.72rem;color:var(--text-dim);margin-bottom:1rem;display:flex;align-items:center;gap:6px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/></svg>
+        Drag the handle to reorder rooms — order saves automatically
+      </div>
+      <div class="drag-list" id="roomsList"></div>
+    </div>
+
+    <!-- EVENTS -->
+    <div class="dash-section" id="tab-events">
+      <div class="section-header">
+        <div>
+          <div class="section-eyebrow">Celebrations</div>
+          <h2 class="section-title">Events &amp; Weddings</h2>
+        </div>
+        <button class="btn btn-copper" onclick="openEventModal()">Add Photos</button>
+      </div>
+      <div class="items-grid" id="eventsList"></div>
+    </div>
+
+    <!-- CAPACITY -->
+    <div class="dash-section" id="tab-capacity">
+      <div class="section-header">
+        <div>
+          <div class="section-eyebrow">Venue</div>
+          <h2 class="section-title">Capacity Stats</h2>
+        </div>
+        <button class="btn btn-copper" onclick="openCapacityModal()">Add Stat</button>
+      </div>
+      <div class="items-grid" id="capacityList"></div>
+    </div>
+
+    <!-- PAGE IMAGES -->
+    <div class="dash-section" id="tab-pageimages">
+      <div class="section-header">
+        <div>
+          <div class="section-eyebrow">Accommodation Page</div>
+          <h2 class="section-title">Page Images</h2>
+        </div>
+      </div>
+      <div style="max-width:560px;">
+        <div style="background:var(--card);border:1px solid var(--border-copper);border-radius:10px;padding:1.5rem;">
+          <div style="font-family:'Cormorant Garamond',serif;font-size:1.1rem;font-weight:500;color:var(--text);margin-bottom:0.25rem;">Accommodation Hero Image</div>
+          <div style="font-size:0.75rem;color:var(--text-dim);margin-bottom:1.25rem;letter-spacing:0.03em;">The background image shown behind "Our Boutique Rooms / Every room tells a story…"</div>
+          <div id="roomsHeroCurrentWrap" style="margin-bottom:1rem;display:none;">
+            <div style="font-size:0.7rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:0.5rem;">Current Image</div>
+            <img id="roomsHeroCurrent" src="" style="width:100%;height:160px;object-fit:cover;border-radius:6px;border:1px solid var(--border);" />
+          </div>
+          <div class="img-upload-zone" onclick="this.querySelector('input').click()" id="roomsHeroUploadZone">
+            <input type="file" accept="image/*" id="roomsHeroFile" onchange="previewRoomsHero(this)" />
+            <div class="label"><strong>Click to upload</strong> or drag image here</div>
+            <img class="img-preview" id="roomsHeroFilePreview" style="display:none;" />
+            <div class="progress-bar" id="roomsHeroProgress" style="display:none;"><div class="progress-bar-fill" id="roomsHeroFill"></div></div>
+          </div>
+          <button class="btn btn-copper" style="margin-top:1rem;width:100%;justify-content:center;" onclick="saveRoomsHero()">Save Image</button>
+        </div>
+
+        <div style="background:var(--card);border:1px solid var(--border-copper);border-radius:10px;padding:1.5rem;margin-top:1.5rem;">
+          <div style="font-family:'Cormorant Garamond',serif;font-size:1.1rem;font-weight:500;color:var(--text);margin-bottom:0.25rem;">Weddings &amp; Events Hero Image</div>
+          <div style="font-size:0.75rem;color:var(--text-dim);margin-bottom:1.25rem;letter-spacing:0.03em;">The background image shown behind "Weddings &amp; Events / Where milestone moments meet the magic…"</div>
+          <div id="eventsHeroCurrentWrap" style="margin-bottom:1rem;display:none;">
+            <div style="font-size:0.7rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:0.5rem;">Current Image</div>
+            <img id="eventsHeroCurrent" src="" style="width:100%;height:160px;object-fit:cover;border-radius:6px;border:1px solid var(--border);" />
+          </div>
+          <div class="img-upload-zone" onclick="this.querySelector('input').click()">
+            <input type="file" accept="image/*" id="eventsHeroFile" onchange="previewEventsHero(this)" />
+            <div class="label"><strong>Click to upload</strong> or drag image here</div>
+            <img class="img-preview" id="eventsHeroFilePreview" style="display:none;" />
+            <div class="progress-bar" id="eventsHeroProgress" style="display:none;"><div class="progress-bar-fill" id="eventsHeroFill"></div></div>
+          </div>
+          <button class="btn btn-copper" id="eventsHeroSaveBtn" style="margin-top:1rem;width:100%;justify-content:center;" onclick="saveEventsHero()">Save Image</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- BOOKINGS -->
+    <div class="dash-section active" id="tab-bookings">
+      <div class="section-header">
+        <div>
+          <div class="section-eyebrow">Reservations</div>
+          <h2 class="section-title">Bookings</h2>
+        </div>
+        <button class="btn btn-copper" onclick="openAddBookingModal()">+ Add Booking</button>
+      </div>
+      <!-- Desktop table -->
+      <div class="bookings-wrap">
+        <table class="bookings-table">
+          <thead>
+            <tr>
+              <th>Guest</th><th>Email</th><th>Phone</th><th>Room</th>
+              <th>Check-in</th><th>Check-out</th><th>Nights</th><th>Total</th><th>Booked On</th><th>Status</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="bookingsTableBody"></tbody>
+        </table>
+      </div>
+      <!-- Mobile cards -->
+      <div class="booking-cards" id="bookingCardsList"></div>
+      <div id="bookingsEmpty" class="empty-state" style="display:none;">No bookings yet</div>
+    </div>
+
+    <!-- SERVICE REQUESTS -->
+    <div class="dash-section" id="tab-requests">
+      <div class="section-header">
+        <div>
+          <div class="section-eyebrow">Concierge</div>
+          <h2 class="section-title">Service Requests</h2>
+        </div>
+        <button class="btn btn-outline" onclick="loadServiceRequests()">↻ Refresh</button>
+      </div>
+      <div class="req-toolbar" id="reqToolbar"></div>
+      <div class="req-grid" id="reqGrid"></div>
+      <div id="reqEmpty" class="empty-state" style="display:none;">No service requests yet</div>
+    </div>
+
+    <!-- PROMOTIONS -->
+    <div class="dash-section" id="tab-promotions">
+      <div class="section-header">
+        <div>
+          <div class="section-eyebrow">Marketing</div>
+          <h2 class="section-title">Promotions</h2>
+        </div>
+      </div>
+
+      <!-- Create Promo Form -->
+      <div style="max-width:640px;">
+        <div style="background:var(--card);border:1px solid var(--border-copper);border-radius:10px;padding:1.75rem;">
+          <div class="section-divider">Create New Promotion</div>
+
+          <div class="form-group">
+            <label class="form-label">Promotion Title</label>
+            <input class="form-input" id="promoTitle" placeholder="e.g. SUMMER ESCAPE DEAL" style="text-transform:uppercase;letter-spacing:0.08em;" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Description — shown on the banner</label>
+            <textarea class="form-textarea" id="promoDesc" placeholder="e.g. Book any room this weekend and get 15% off your stay. Use code at checkout."></textarea>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Discount Type</label>
+            <div class="promo-type-row">
+              <div class="promo-type-opt selected" id="promoTypePercent" onclick="setPromoDiscountType('percent')">% Percentage Off</div>
+              <div class="promo-type-opt" id="promoTypeFixed" onclick="setPromoDiscountType('fixed')">$ Fixed Amount Off</div>
+            </div>
+            <input type="hidden" id="promoDiscountType" value="percent" />
+            <label class="form-label" id="promoDiscountLabel">Discount Percentage (%)</label>
+            <input type="number" class="form-input" id="promoDiscountValue" placeholder="e.g. 15" min="1" />
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Start Date (optional)</label>
+              <input type="date" class="form-input" id="promoStartDate" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">End Date (optional)</label>
+              <input type="date" class="form-input" id="promoEndDate" />
+            </div>
+          </div>
+
+          <div class="toggle-row">
+            <label class="toggle-switch">
+              <input type="checkbox" id="promoShowBookBtn" checked />
+              <span class="toggle-slider"></span>
+            </label>
+            <div>
+              <div style="font-size:0.75rem;font-weight:600;color:var(--text);margin-bottom:2px;">Show "Book Now" button on banner</div>
+              <div style="font-size:0.7rem;color:var(--text-dim);">Guests can tap it to go straight to the booking form</div>
+            </div>
+          </div>
+
+          <button class="btn btn-copper" style="width:100%;justify-content:center;padding:0.75rem;" onclick="createPromotion()">Post Promotion</button>
+          <p id="promoFormMsg" style="text-align:center;font-style:italic;font-family:'Cormorant Garamond',serif;font-size:0.875rem;margin-top:0.75rem;display:none;"></p>
+        </div>
+
+        <!-- Active Promotions List -->
+        <div style="margin-top:2rem;">
+          <div class="section-divider">Your Promotions</div>
+          <div id="promoAdminList">
+            <div class="empty-state">Loading promotions…</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modalOverlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modalTitle">Add Item</h3>
+      <button class="modal-close" onclick="closeModal()">&#215;</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-footer" id="modalFooter"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* Safety net: ensure the local-date helper exists regardless of script order. */
+if (!window._localToday) {
+  window._localToday = function () {
+    const d = new Date();
+    return d.getFullYear() + '-' +
+           String(d.getMonth() + 1).padStart(2, '0') + '-' +
+           String(d.getDate()).padStart(2, '0');
+  };
+}
+
+/* ── Drawer ─────────────────────────────── */
+function openDrawer() {
+  document.getElementById('drawer').classList.add('show');
+  document.getElementById('drawerScrim').classList.add('show');
+  document.body.style.overflow = 'hidden';
+}
+function closeDrawer() {
+  document.getElementById('drawer').classList.remove('show');
+  document.getElementById('drawerScrim').classList.remove('show');
+  document.body.style.overflow = '';
+}
+
+/* ── Tab switching ──────────────────────── */
+const TAB_LABELS = {
+  features: 'Feature Cards',
+  rooms: 'Rooms',
+  events: 'Events',
+  capacity: 'Capacity Stats',
+  pageimages: 'Page Images',
+  promotions: 'Promotions',
+  bookings: 'Bookings',
+  requests: 'Service Requests'
+};
+
+function switchTab(tab) {
+  document.querySelectorAll('.dash-section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  // Highlight the matching drawer link (by onclick text match)
+  document.querySelectorAll('.nav-link').forEach(l => {
+    if (l.getAttribute('onclick') && l.getAttribute('onclick').includes("'" + tab + "'")) {
+      l.classList.add('active');
+    }
+  });
+  const label = document.getElementById('topbarLabel');
+  if (label) label.textContent = TAB_LABELS[tab] || tab;
+}
+
+/* ── Toast ──────────────────────────────── */
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+async function handleLogout() {
+  try { await window._fb.signOut(window._fb.auth); } catch(e) {}
+  window.location.reload();
+}
+
+/* ── Modal ──────────────────────────────── */
+function openModal(title) {
+  document.getElementById('modalTitle').textContent = title;
+  document.getElementById('modalOverlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function closeModal() {
+  document.getElementById('modalOverlay').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+/* ── Image upload ───────────────────────── */
+async function uploadImage(file, path) {
+  return new Promise((resolve, reject) => {
+    const { storage, ref, uploadBytesResumable, getDownloadURL } = window._fb;
+    const storageRef = ref(storage, path);
+    const task = uploadBytesResumable(storageRef, file);
+    const bar = document.querySelector('.progress-bar');
+    const fill = document.querySelector('.progress-bar-fill');
+    if (bar) bar.style.display = 'block';
+    task.on('state_changed',
+      snap => { if (fill) fill.style.width = `${(snap.bytesTransferred / snap.totalBytes) * 100}%`; },
+      err => reject(err),
+      async () => {
+        const url = await getDownloadURL(task.snapshot.ref);
+        if (bar) { bar.style.display = 'none'; if(fill) fill.style.width = '0%'; }
+        resolve(url);
+      }
+    );
+  });
+}
+
+function fileInputHtml(id) {
+  return `<div class="img-upload-zone" onclick="this.querySelector('input').click()">
+    <input type="file" accept="image/*" id="${id}" onchange="previewFile(this)" />
+    <div class="label"><strong>Click to upload</strong> or drag image here</div>
+    <img class="img-preview" id="${id}Preview" style="display:none;" />
+    <div class="progress-bar"><div class="progress-bar-fill"></div></div>
+  </div>`;
+}
+
+function previewFile(input) {
+  const file = input.files[0]; if (!file) return;
+  const preview = document.getElementById(input.id + 'Preview');
+  const reader = new FileReader();
+  reader.onload = e => { preview.src = e.target.result; preview.style.display = 'block'; };
+  reader.readAsDataURL(file);
+}
+
+function gv(id) { return document.getElementById(id)?.value?.trim() || ''; }
+
+/* ── Load all ───────────────────────────── */
+async function loadAllData() {
+  await Promise.all([loadFeatures(), loadRooms(), loadEvents(), loadCapacity(), loadBookings(), loadServiceRequests()]);
+}
+
+/* ── Generic CRUD helpers ───────────────── */
+async function saveItem(collName, editId, data, imgInputId, storagePath) {
+  const { db, collection, addDoc, doc, updateDoc } = window._fb;
+  if (imgInputId) {
+    const fi = document.getElementById(imgInputId);
+    if (fi && fi.files && fi.files[0]) data.imageUrl = await uploadImage(fi.files[0], storagePath);
+  }
+  if (editId) { await updateDoc(doc(db, collName, editId), data); }
+  else { await addDoc(collection(db, collName), data); }
+}
+
+async function deleteItem(collName, docId) {
+  if (!confirm('Delete this item?')) return;
+  const { db, doc, deleteDoc } = window._fb;
+  await deleteDoc(doc(db, collName, docId));
+  showToast('Deleted.');
+  await loadAllData();
+}
+
+async function loadEditData(collName, docId, fieldMappings, imgInputId) {
+  const { doc: docRef } = await import('https://www.gstatic.com/firebasejs/11.7.3/firebase-firestore.js');
+  const { getDoc } = await import('https://www.gstatic.com/firebasejs/11.7.3/firebase-firestore.js');
+  const snap = await getDoc(docRef(window._fb.db, collName, docId));
+  if (!snap.exists()) return;
+  const data = snap.data();
+  fieldMappings.forEach(m => {
+    const [elId, field] = m.split(':');
+    const el = document.getElementById(elId);
+    if (el && data[field] !== undefined) el.value = data[field];
+  });
+  if (imgInputId && data.imageUrl) {
+    const p = document.getElementById(imgInputId + 'Preview');
+    if (p) { p.src = data.imageUrl; p.style.display = 'block'; }
+  }
+}
+
+/* ── Features ───────────────────────────── */
+async function loadFeatures() {
+  const { db, collection, getDocs, query, orderBy } = window._fb;
+  const snap = await getDocs(query(collection(db, 'features'), orderBy('order')));
+  const items = []; snap.forEach(d => items.push({ id: d.id, ...d.data() }));
+  const el = document.getElementById('featuresList');
+  if (items.length === 0) { el.innerHTML = '<div class="empty-state">No features yet</div>'; return; }
+  el.innerHTML = items.map(f => {
+    const previewImgs = Array.isArray(f.mobileImages) && f.mobileImages.length ? f.mobileImages
+      : (Array.isArray(f.images) && f.images.length ? f.images : (f.imageUrl ? [f.imageUrl] : []));
+    const mobCount  = Array.isArray(f.mobileImages)  ? f.mobileImages.length  : 0;
+    const deskCount = Array.isArray(f.desktopImages) ? f.desktopImages.length : 0;
+    let imgHtml;
+    if (previewImgs.length === 0) {
+      imgHtml = '<div class="no-img">No image</div>';
+    } else if (previewImgs.length === 1) {
+      imgHtml = `<img src="${previewImgs[0]}" />`;
+    } else {
+      const dots = previewImgs.map((_,i) => `<button class="admin-slide-dot${i===0?' active':''}" onclick="adminSlideGo('${f.id}',${i})"></button>`).join('');
+      const slides = previewImgs.map((u,i) => `<img src="${u}" class="${i===0?'active':''}" />`).join('');
+      imgHtml = `<div class="admin-slide-preview" id="aslide-${f.id}">${slides}<div class="admin-slide-dots">${dots}</div></div>`;
+    }
+    const slotInfo = [mobCount ? `📱 ${mobCount}` : '', deskCount ? `🖥️ ${deskCount}` : ''].filter(Boolean).join('  ');
+    return `
+    <div class="item-card">
+      <div class="item-card-img">${imgHtml}</div>
+      <div class="item-card-body">
+        <div class="item-card-title">${f.title}</div>
+        <div class="item-card-meta">${f.description || ''}${slotInfo ? ` <span style="color:var(--copper-shine);margin-left:4px;">${slotInfo}</span>` : ''}</div>
+      </div>
+      <div class="item-card-actions">
+        <button class="btn btn-outline btn-sm" onclick="openFeatureModal('${f.id}')">Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteItem('features','${f.id}')">Delete</button>
+      </div>
+    </div>`;
+  }).join('');
+  items.forEach(f => {
+    const previewImgs = Array.isArray(f.mobileImages) && f.mobileImages.length ? f.mobileImages
+      : (Array.isArray(f.images) && f.images.length ? f.images : []);
+    if (previewImgs.length > 1) startAdminSlide(f.id, previewImgs.length);
+  });
+}
+
+const _adminSlideTimers = {};
+function startAdminSlide(featureId, count) {
+  if (_adminSlideTimers[featureId]) clearInterval(_adminSlideTimers[featureId]);
+  let cur = 0;
+  _adminSlideTimers[featureId] = setInterval(() => {
+    cur = (cur + 1) % count;
+    adminSlideGo(featureId, cur);
+  }, 3000);
+}
+function adminSlideGo(featureId, idx) {
+  const wrap = document.getElementById('aslide-' + featureId);
+  if (!wrap) return;
+  wrap.querySelectorAll('img').forEach((img, i) => img.classList.toggle('active', i === idx));
+  wrap.querySelectorAll('.admin-slide-dot').forEach((d, i) => d.classList.toggle('active', i === idx));
+}
+
+// Multi-image state for feature modal — split by slot
+let _featureMobileImgs = []; // max 2
+let _featureDesktopImgs = []; // max 2
+
+function openFeatureModal(editId) {
+  _featureMobileImgs = [];
+  _featureDesktopImgs = [];
+  openModal(editId ? 'Edit Feature' : 'Add Feature');
+  document.getElementById('modalBody').innerHTML = `
+    <div class="form-group"><label class="form-label">Title</label><input class="form-input" id="mTitle" placeholder="e.g. Boutique Rooms" /></div>
+    <div class="form-group"><label class="form-label">Description</label><textarea class="form-textarea" id="mDesc" placeholder="Short description"></textarea></div>
+    <div class="form-group"><label class="form-label">Display Order</label><input type="number" class="form-input" id="mOrder" value="0" min="0" /></div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:0.5rem;">
+      <div>
+        <label class="form-label" style="margin-bottom:0.35rem;">📱 Mobile Photos <span style="font-weight:400;color:var(--text-dim)">(max 2 — optional)</span></label>
+        <div class="img-upload-zone" id="mobileUploadZone" onclick="triggerFeatureUpload('mobile')" style="min-height:80px;cursor:pointer;">
+          <input type="file" accept="image/*" id="mMobileImgPicker" style="display:none" onchange="featureSlotAdd(this,'mobile')" />
+          <div class="label" id="mobileUploadLabel"><strong>Click to add</strong><br><span style="font-size:0.72rem;">up to 2 photos</span></div>
+        </div>
+        <div class="multi-img-list" id="featureMobileList" style="margin-top:0.5rem;"></div>
+      </div>
+      <div>
+        <label class="form-label" style="margin-bottom:0.35rem;">🖥️ Desktop Photos <span style="font-weight:400;color:var(--text-dim)">(max 2 — optional)</span></label>
+        <div class="img-upload-zone" id="desktopUploadZone" onclick="triggerFeatureUpload('desktop')" style="min-height:80px;cursor:pointer;">
+          <input type="file" accept="image/*" id="mDesktopImgPicker" style="display:none" onchange="featureSlotAdd(this,'desktop')" />
+          <div class="label" id="desktopUploadLabel"><strong>Click to add</strong><br><span style="font-size:0.72rem;">up to 2 photos</span></div>
+        </div>
+        <div class="multi-img-list" id="featureDesktopList" style="margin-top:0.5rem;"></div>
+      </div>
+    </div>
+    <p style="font-size:0.72rem;color:var(--text-dim);margin-top:0.75rem;">If only mobile photos are uploaded, they'll also show on desktop. If only desktop photos are uploaded, they'll also show on mobile.</p>`;
+  document.getElementById('modalFooter').innerHTML = `
+    <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    <button class="btn btn-copper" onclick="saveFeature('${editId||''}')">Save</button>`;
+  if (editId) {
+    loadEditData('features', editId, ['mTitle:title','mDesc:description','mOrder:order']);
+    loadFeatureImages(editId);
+  }
+}
+
+function triggerFeatureUpload(slot) {
+  const arr = slot === 'mobile' ? _featureMobileImgs : _featureDesktopImgs;
+  if (arr.length >= 2) { showToast('Max 2 photos per slot'); return; }
+  document.getElementById(slot === 'mobile' ? 'mMobileImgPicker' : 'mDesktopImgPicker').click();
+}
+
+async function loadFeatureImages(editId) {
+  const { db } = window._fb;
+  const { getDoc, doc } = await import('https://www.gstatic.com/firebasejs/11.7.3/firebase-firestore.js');
+  const snap = await getDoc(doc(db, 'features', editId));
+  if (!snap.exists()) return;
+  const data = snap.data();
+  // Load new split fields, fall back to legacy images[] for old records
+  const mob = Array.isArray(data.mobileImages) && data.mobileImages.length ? data.mobileImages
+    : (Array.isArray(data.images) && data.images.length ? data.images.slice(0, 2) : (data.imageUrl ? [data.imageUrl] : []));
+  const desk = Array.isArray(data.desktopImages) && data.desktopImages.length ? data.desktopImages
+    : [];
+  mob.forEach(url => _featureMobileImgs.push({ url, name: url.split('/').pop().split('?')[0].slice(0,28) }));
+  desk.forEach(url => _featureDesktopImgs.push({ url, name: url.split('/').pop().split('?')[0].slice(0,28) }));
+  renderFeatureSlotList('mobile');
+  renderFeatureSlotList('desktop');
+}
+
+function featureSlotAdd(input, slot) {
+  const arr = slot === 'mobile' ? _featureMobileImgs : _featureDesktopImgs;
+  const remaining = 2 - arr.length;
+  Array.from(input.files).slice(0, remaining).forEach(file => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      arr.push({ url: e.target.result, file, name: file.name });
+      renderFeatureSlotList(slot);
+    };
+    reader.readAsDataURL(file);
+  });
+  input.value = '';
+}
+
+function featureSlotRemove(slot, idx) {
+  const arr = slot === 'mobile' ? _featureMobileImgs : _featureDesktopImgs;
+  arr.splice(idx, 1);
+  renderFeatureSlotList(slot);
+}
+
+function renderFeatureSlotList(slot) {
+  const arr = slot === 'mobile' ? _featureMobileImgs : _featureDesktopImgs;
+  const listEl = document.getElementById(slot === 'mobile' ? 'featureMobileList' : 'featureDesktopList');
+  const zoneEl = document.getElementById(slot === 'mobile' ? 'mobileUploadZone' : 'desktopUploadZone');
+  if (!listEl) return;
+  // Hide upload zone when at max
+  if (zoneEl) zoneEl.style.display = arr.length >= 2 ? 'none' : '';
+  if (arr.length === 0) { listEl.innerHTML = ''; return; }
+  listEl.innerHTML = arr.map((img, i) => `
+    <div class="multi-img-item">
+      <img class="multi-img-thumb" src="${img.url}" />
+      <span class="multi-img-name">${img.name}</span>
+      <button class="multi-img-remove" onclick="featureSlotRemove('${slot}',${i})">&#215;</button>
+    </div>`).join('');
+}
+
+async function saveFeature(editId) {
+  const data = { title: gv('mTitle'), description: gv('mDesc'), order: parseInt(gv('mOrder')) || 0 };
+  if (!data.title) { alert('Title is required.'); return; }
+  const btn = document.querySelector('#modalFooter .btn-copper');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const { storage, ref, uploadBytesResumable, getDownloadURL, db, collection, addDoc, doc, updateDoc } = window._fb;
+
+    async function uploadSlot(arr) {
+      const urls = [];
+      for (const img of arr) {
+        if (img.file) {
+          const storageRef = ref(storage, `features/${Date.now()}_${img.file.name}`);
+          const url = await new Promise((resolve, reject) => {
+            const task = uploadBytesResumable(storageRef, img.file);
+            task.on('state_changed', null, reject, async () => resolve(await getDownloadURL(task.snapshot.ref)));
+          });
+          urls.push(url);
+        } else {
+          urls.push(img.url);
+        }
+      }
+      return urls;
+    }
+
+    const mobileUrls  = await uploadSlot(_featureMobileImgs);
+    const desktopUrls = await uploadSlot(_featureDesktopImgs);
+
+    data.mobileImages  = mobileUrls;
+    data.desktopImages = desktopUrls;
+    // Legacy compat: images[] = whichever slot has photos (mobile preferred)
+    data.images   = mobileUrls.length  ? mobileUrls  : desktopUrls;
+    data.imageUrl = data.images[0] || '';
+
+    if (editId) { await updateDoc(doc(db, 'features', editId), data); }
+    else { await addDoc(collection(db, 'features'), data); }
+
+    closeModal(); await loadFeatures(); showToast('Feature saved');
+  } catch(e) {
+    console.error(e); showToast('Save failed. Try again.');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Save';
+  }
+}
+
+/* ── Rooms ──────────────────────────────── */
+async function loadRooms() {
+  const { db, collection, getDocs, query, orderBy } = window._fb;
+  const snap = await getDocs(query(collection(db, 'rooms'), orderBy('order')));
+  const items = []; snap.forEach(d => items.push({ id: d.id, ...d.data() }));
+  const el = document.getElementById('roomsList');
+  if (items.length === 0) { el.innerHTML = '<div class="empty-state">No rooms yet</div>'; return; }
+
+  el.innerHTML = items.map(r => {
+    const amenityIcons = Array.isArray(r.amenities) && r.amenities.length
+      ? r.amenities.map(k => { const found = ROOM_AMENITIES.find(a=>a.key===k); return found ? `<span style="color:var(--copper-shine);" title="${found.label}">${found.icon}</span>` : ''; }).join('')
+      : '';
+    const imgs = Array.isArray(r.images) && r.images.length ? r.images : (r.imageUrl ? [r.imageUrl] : []);
+    const thumb = imgs[0] || '';
+    return `
+    <div class="drag-item" data-id="${r.id}" draggable="true"
+         ondragstart="onDragStart(event)" ondragover="onDragOver(event)"
+         ondragleave="onDragLeave(event)" ondrop="onDrop(event)" ondragend="onDragEnd(event)">
+      <div class="drag-handle">
+        <span></span><span></span><span></span><span></span><span></span><span></span>
+      </div>
+      ${thumb ? `<img class="drag-item-img" src="${thumb}" />` : '<div class="drag-item-img" style="background:rgba(255,255,255,0.05);border-radius:5px;"></div>'}
+      <div class="drag-item-body">
+        <div class="drag-item-title">${r.name}</div>
+        <div class="drag-item-meta">$${r.price}/night${r.badge ? ' · ' + r.badge : ''} · ${(r.maxAdults||1)} adult${(r.maxAdults||1)!==1?'s':''}${r.maxChildren ? ' + ' + r.maxChildren + ' child' + (r.maxChildren!==1?'ren':'') : ''} max${amenityIcons ? '<br><span style="display:inline-flex;gap:5px;margin-top:3px;flex-wrap:wrap;">' + amenityIcons + '</span>' : ''}</div>
+      </div>
+      <div class="drag-item-actions">
+        <button class="btn btn-outline btn-sm" onclick="openRoomModal('${r.id}')">Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteItem('rooms','${r.id}')">Delete</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  initRoomDrag();
+}
+
+/* Drag-and-drop logic */
+let _dragSrc = null;
+
+function initRoomDrag() {
+  // nothing extra needed — events are inline
+}
+
+function onDragStart(e) {
+  _dragSrc = e.currentTarget;
+  _dragSrc.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', _dragSrc.dataset.id);
+}
+
+function onDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const target = e.currentTarget;
+  if (target !== _dragSrc) target.classList.add('drag-over');
+}
+
+function onDragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
+
+function onDrop(e) {
+  e.preventDefault();
+  const target = e.currentTarget;
+  target.classList.remove('drag-over');
+  if (!_dragSrc || _dragSrc === target) return;
+  const list = document.getElementById('roomsList');
+  const items = [...list.querySelectorAll('.drag-item')];
+  const srcIdx = items.indexOf(_dragSrc);
+  const tgtIdx = items.indexOf(target);
+  if (srcIdx < tgtIdx) target.after(_dragSrc);
+  else target.before(_dragSrc);
+  saveRoomOrder();
+}
+
+function onDragEnd(e) {
+  e.currentTarget.classList.remove('dragging');
+  document.querySelectorAll('.drag-item').forEach(i => i.classList.remove('drag-over'));
+  _dragSrc = null;
+}
+
+async function saveRoomOrder() {
+  const list = document.getElementById('roomsList');
+  const ids = [...list.querySelectorAll('.drag-item')].map(el => el.dataset.id);
+  const { db, doc, updateDoc } = window._fb;
+  await Promise.all(ids.map((id, idx) => updateDoc(doc(db, 'rooms', id), { order: idx })));
+  showToast('Room order saved');
+}
+
+const ROOM_AMENITIES = [
+  { key: 'wifi',        label: 'Free Wi-Fi',       icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><path d="M5 12.55a11 11 0 0114.08 0"/><path d="M1.42 9a16 16 0 0121.16 0"/><path d="M8.53 16.11a6 6 0 016.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>' },
+  { key: 'tv',          label: 'Smart TV',          icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>' },
+  { key: 'hotwater',    label: 'Hot Water',         icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><path d="M12 2c-5.33 4-8 7.33-8 10a8 8 0 0016 0c0-2.67-2.67-6-8-10z"/></svg>' },
+  { key: 'security',    label: '24hr Security',     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>' },
+  { key: 'breakfast',   label: 'Breakfast',         icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><path d="M18 8h1a4 4 0 010 8h-1"/><path d="M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>' },
+  { key: 'ac',          label: 'Air Conditioning',  icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><rect x="2" y="3" width="20" height="8" rx="2"/><path d="M7 11v8m5-8v8m5-8v8"/><path d="M5 19h14"/></svg>' },
+  { key: 'minibar',     label: 'Mini Bar',          icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><path d="M8 2h8l1 8H7L8 2z"/><path d="M7 10l-2 11h14L17 10"/><line x1="12" y1="10" x2="12" y2="21"/></svg>' },
+  { key: 'balcony',     label: 'Balcony',   icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>' },
+  { key: 'pool',        label: 'Pool Access',       icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><path d="M2 12h20M2 18c2-2 4-2 6 0s4 2 6 0 4-2 6 0"/><circle cx="7" cy="7" r="3"/><path d="M10 7h4"/></svg>' },
+  { key: 'parking',     label: 'Free Parking',      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 17V7h4a3 3 0 010 6H9"/></svg>' },
+  { key: 'kitchenette', label: 'Kitchenette',       icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><path d="M3 3h18v5H3z"/><path d="M3 8v13h18V8"/><path d="M9 8v13M15 8v13"/></svg>' },
+  { key: 'safe',        label: 'In-Room Safe',      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M12 9v0M12 15v0M9 12H6M18 12h-3"/></svg>' },
+  { key: 'jacuzzi',     label: 'Jacuzzi',           icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><path d="M4 12h16v6a2 2 0 01-2 2H6a2 2 0 01-2-2v-6z"/><path d="M6 12V8a2 2 0 012-2h8a2 2 0 012 2v4"/><path d="M8 6V4M12 6V4M16 6V4"/></svg>' },
+  { key: 'ocean',       label: 'Mountain View',     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><polygon points="3 20 9 8 15 16 18 11 21 20 3 20"/></svg>' },
+  { key: 'laundry',     label: 'Laundry Service',   icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="12" cy="13" r="4"/><line x1="8" y1="7" x2="8.01" y2="7"/></svg>' },
+];
+
+function amenityCheckboxesHtml(selected = []) {
+  return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(165px,1fr));gap:0.5rem;margin-top:0.25rem;">
+    ${ROOM_AMENITIES.map(a => `
+      <label style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0.625rem;background:rgba(255,255,255,0.03);border:1px solid var(--border-copper);border-radius:5px;cursor:pointer;font-size:0.78rem;color:var(--text-2);transition:border-color 0.2s;" onmouseover="this.style.borderColor='var(--copper)'" onmouseout="this.style.borderColor='var(--border-copper)'">
+        <input type="checkbox" data-amenity="${a.key}" style="accent-color:var(--copper);width:14px;height:14px;flex-shrink:0;" ${selected.includes(a.key) ? 'checked' : ''} />
+        <span style="color:var(--copper-shine);flex-shrink:0;">${a.icon}</span>
+        <span>${a.label}</span>
+      </label>`).join('')}
+  </div>`;
+}
+
+function getSelectedAmenities() {
+  return Array.from(document.querySelectorAll('input[data-amenity]:checked')).map(i => i.dataset.amenity);
+}
+
+// Multi-image state for room modal
+let _roomImages = [];
+
+function openRoomModal(editId) {
+  _roomImages = [];
+  openModal(editId ? 'Edit Room' : 'Add Room');
+  document.getElementById('modalBody').innerHTML = `
+    <div class="form-group"><label class="form-label">Room Name</label><input class="form-input" id="mName" placeholder="e.g. Spur Tree Suite" /></div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Price per Night ($)</label><input type="number" class="form-input" id="mPrice" placeholder="185" min="0" /></div>
+      <div class="form-group"><label class="form-label">Badge Label</label><input class="form-input" id="mBadge" placeholder="Signature, Popular…" /></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Max Adults</label><input type="number" class="form-input" id="mMaxAdults" placeholder="2" min="1" /></div>
+      <div class="form-group"><label class="form-label">Max Children</label><input type="number" class="form-input" id="mMaxChildren" placeholder="0" min="0" /></div>
+    </div>
+    <div class="form-group"><label class="form-label">Description</label><textarea class="form-textarea" id="mDesc" placeholder="Describe the room"></textarea></div>
+    <div class="form-group">
+      <label class="form-label">Amenities & Inclusions</label>
+      <div id="mAmenitiesWrap">${amenityCheckboxesHtml([])}</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Photos <span style="font-weight:400;color:var(--text-dim)">(add multiple — users will swipe through them in this order; drag to reorder, first photo is the cover)</span></label>
+      <div class="img-upload-zone" onclick="this.querySelector('input').click()" style="margin-bottom:0.5rem;">
+        <input type="file" accept="image/*" multiple id="mRoomImgPicker" onchange="roomImgAdd(this)" />
+        <div class="label"><strong>Click to add photos</strong> — select one or multiple at once</div>
+      </div>
+      <div class="multi-img-list" id="roomImgList"></div>
+    </div>`;
+  document.getElementById('modalFooter').innerHTML = `
+    <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    <button class="btn btn-copper" onclick="saveRoom('${editId||''}')">Save</button>`;
+  if (editId) {
+    loadEditData('rooms', editId, ['mName:name','mPrice:price','mBadge:badge','mDesc:description','mMaxAdults:maxAdults','mMaxChildren:maxChildren']);
+    loadRoomAmenities(editId);
+    loadRoomImages(editId);
+  } else {
+    document.getElementById('mMaxAdults').value = 2;
+    document.getElementById('mMaxChildren').value = 0;
+  }
+}
+
+async function loadRoomImages(editId) {
+  const { db } = window._fb;
+  const { getDoc, doc } = await import('https://www.gstatic.com/firebasejs/11.7.3/firebase-firestore.js');
+  const snap = await getDoc(doc(db, 'rooms', editId));
+  if (!snap.exists()) return;
+  const data = snap.data();
+  const imgs = Array.isArray(data.images) && data.images.length > 0 ? data.images : (data.imageUrl ? [data.imageUrl] : []);
+  imgs.forEach(url => { _roomImages.push({ url, name: url.split('/').pop().split('?')[0].slice(0,28) }); });
+  renderRoomImgList();
+}
+
+function roomImgAdd(input) {
+  Array.from(input.files).forEach(file => {
+    const reader = new FileReader();
+    reader.onload = e => { _roomImages.push({ url: e.target.result, file, name: file.name }); renderRoomImgList(); };
+    reader.readAsDataURL(file);
+  });
+  input.value = '';
+}
+
+function roomImgRemove(idx) { _roomImages.splice(idx, 1); renderRoomImgList(); }
+
+function renderRoomImgList() {
+  const list = document.getElementById('roomImgList');
+  if (!list) return;
+  list.innerHTML = _roomImages.map((img, i) => `
+    <div class="multi-img-item" data-idx="${i}" draggable="true"
+         ondragstart="roomImgDragStart(event)" ondragover="roomImgDragOver(event)"
+         ondragleave="roomImgDragLeave(event)" ondrop="roomImgDrop(event)" ondragend="roomImgDragEnd(event)">
+      <div class="drag-handle"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+      <img class="multi-img-thumb" src="${img.url}" />
+      <span class="multi-img-name">${img.file ? img.file.name : img.name}</span>
+      ${i === 0 ? '<span class="multi-img-cover-badge">Cover</span>' : ''}
+      <button class="multi-img-remove" onclick="roomImgRemove(${i})">&#215;</button>
+    </div>`).join('');
+}
+
+/* Drag-and-drop reordering for room photos */
+let _roomImgDragSrc = null;
+
+function roomImgDragStart(e) {
+  _roomImgDragSrc = e.currentTarget;
+  _roomImgDragSrc.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', _roomImgDragSrc.dataset.idx);
+}
+
+function roomImgDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const target = e.currentTarget;
+  if (target !== _roomImgDragSrc) target.classList.add('drag-over');
+}
+
+function roomImgDragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
+
+function roomImgDrop(e) {
+  e.preventDefault();
+  const target = e.currentTarget;
+  target.classList.remove('drag-over');
+  if (!_roomImgDragSrc || _roomImgDragSrc === target) return;
+  const srcIdx = parseInt(_roomImgDragSrc.dataset.idx);
+  const tgtIdx = parseInt(target.dataset.idx);
+  const [moved] = _roomImages.splice(srcIdx, 1);
+  _roomImages.splice(tgtIdx, 0, moved);
+  renderRoomImgList();
+}
+
+function roomImgDragEnd(e) {
+  e.currentTarget.classList.remove('dragging');
+  document.querySelectorAll('#roomImgList .multi-img-item').forEach(i => i.classList.remove('drag-over'));
+  _roomImgDragSrc = null;
+}
+
+async function loadRoomAmenities(editId) {
+  const { db } = window._fb;
+  const { getDoc, doc } = await import('https://www.gstatic.com/firebasejs/11.7.3/firebase-firestore.js');
+  const snap = await getDoc(doc(db, 'rooms', editId));
+  if (!snap.exists()) return;
+  const selected = snap.data().amenities || [];
+  const wrap = document.getElementById('mAmenitiesWrap');
+  if (wrap) wrap.innerHTML = amenityCheckboxesHtml(selected);
+}
+
+async function saveRoom(editId) {
+  const data = {
+    name: gv('mName'), price: parseInt(gv('mPrice')) || 0,
+    badge: gv('mBadge'),
+    description: gv('mDesc'),
+    maxAdults: parseInt(gv('mMaxAdults')) || 1,
+    maxChildren: Math.max(0, parseInt(gv('mMaxChildren')) || 0),
+    amenities: getSelectedAmenities()
+  };
+  if (!data.name || !data.price) { alert('Name and price are required.'); return; }
+  const btn = document.querySelector('#modalFooter .btn-copper');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const { storage, ref, uploadBytesResumable, getDownloadURL, db, collection, addDoc, doc, updateDoc } = window._fb;
+    const finalUrls = [];
+    for (const img of _roomImages) {
+      if (img.file) {
+        const storageRef = ref(storage, `rooms/${Date.now()}_${img.file.name}`);
+        const url = await new Promise((resolve, reject) => {
+          const task = uploadBytesResumable(storageRef, img.file);
+          task.on('state_changed', null, reject, async () => resolve(await getDownloadURL(task.snapshot.ref)));
+        });
+        finalUrls.push(url);
+      } else { finalUrls.push(img.url); }
+    }
+    data.images = finalUrls;
+    data.imageUrl = finalUrls[0] || '';
+    if (editId) { await updateDoc(doc(db, 'rooms', editId), data); }
+    else { await addDoc(collection(db, 'rooms'), data); }
+    closeModal(); await loadRooms(); showToast('Room saved');
+  } catch(e) { console.error(e); showToast('Save failed. Try again.'); }
+  finally { btn.disabled = false; btn.textContent = 'Save'; }
+}
+
+/* ── Events ─────────────────────────────── */
+async function loadEvents() {
+  const { db, collection, getDocs, query, orderBy } = window._fb;
+  const snap = await getDocs(query(collection(db, 'events'), orderBy('order')));
+  const items = []; snap.forEach(d => items.push({ id: d.id, ...d.data() }));
+  const el = document.getElementById('eventsList');
+  if (items.length === 0) { el.innerHTML = '<div class="empty-state">No events yet</div>'; return; }
+  el.innerHTML = items.map(ev => `
+    <div class="item-card">
+      <div class="item-card-img">${ev.imageUrl ? `<img src="${ev.imageUrl}" />` : '<div class="no-img">No image</div>'}</div>
+      <div class="item-card-body">
+        <div class="item-card-title">${ev.type || 'Untitled'}</div>
+        <div class="item-card-meta">${ev.title ? ev.title + ' &middot; ' : ''}${ev.metaText || ''}</div>
+      </div>
+      <div class="item-card-actions">
+        <button class="btn btn-outline btn-sm" onclick="openEventModal('${ev.id}')">Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteItem('events','${ev.id}')">Delete</button>
+      </div>
+    </div>`).join('');
+}
+
+function openEventModal(editId) {
+  openModal(editId ? 'Edit Event Photo' : 'Add Event Photos');
+  if (editId) {
+    // Editing a single existing photo — simple form
+    document.getElementById('modalBody').innerHTML = `
+      <div class="form-group"><label class="form-label">Event Category</label><input class="form-input" id="mType" placeholder="e.g. Weddings" /></div>
+      <div class="form-group"><label class="form-label">Display Order</label><input type="number" class="form-input" id="mOrder" value="0" min="0" /></div>
+      <div class="form-group"><label class="form-label">Photo</label>${fileInputHtml('mImg')}</div>`;
+    document.getElementById('modalFooter').innerHTML = `
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-copper" onclick="saveEvent('${editId}')">Save</button>`;
+    loadEditData('events', editId, ['mType:type','mOrder:order'], 'mImg');
+    return;
+  }
+
+  // Adding — mass upload: one heading, many photos at once
+  _eventImages = [];
+  document.getElementById('modalBody').innerHTML = `
+    <div class="form-group"><label class="form-label">Heading <span style="font-weight:400;color:var(--text-dim)">(e.g. Birthday Party, Weddings)</span></label><input class="form-input" id="mType" placeholder="e.g. Birthday Party" /></div>
+    <div class="form-group"><label class="form-label">Display Order</label><input type="number" class="form-input" id="mOrder" value="0" min="0" /></div>
+    <div class="form-group">
+      <label class="form-label">Photos <span style="font-weight:400;color:var(--text-dim)">(select multiple at once — drag to reorder)</span></label>
+      <div class="img-upload-zone" onclick="this.querySelector('input').click()" style="margin-bottom:0.5rem;">
+        <input type="file" accept="image/*" multiple id="mEventImgPicker" onchange="eventImgAdd(this)" />
+        <div class="label"><strong>Click to add photos</strong> — select one or multiple at once</div>
+      </div>
+      <div class="multi-img-list" id="eventImgList"></div>
+    </div>`;
+  document.getElementById('modalFooter').innerHTML = `
+    <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    <button class="btn btn-copper" id="eventBatchSaveBtn" onclick="saveEventBatch()">Upload Photos</button>`;
+}
+
+async function saveEvent(editId) {
+  const data = { type: gv('mType'), order: parseInt(gv('mOrder')) || 0 };
+  if (!data.type) { alert('Category is required.'); return; }
+  await saveItem('events', editId, data, 'mImg', `events/${Date.now()}`);
+  closeModal(); await loadEvents(); showToast('Event saved');
+}
+
+/* ── Mass photo upload for events ─────────── */
+let _eventImages = [];
+
+function eventImgAdd(input) {
+  Array.from(input.files).forEach(file => {
+    const reader = new FileReader();
+    reader.onload = e => { _eventImages.push({ url: e.target.result, file, name: file.name }); renderEventImgList(); };
+    reader.readAsDataURL(file);
+  });
+  input.value = '';
+}
+
+function eventImgRemove(idx) { _eventImages.splice(idx, 1); renderEventImgList(); }
+
+function renderEventImgList() {
+  const list = document.getElementById('eventImgList');
+  if (!list) return;
+  list.innerHTML = _eventImages.map((img, i) => `
+    <div class="multi-img-item" data-idx="${i}" draggable="true"
+         ondragstart="eventImgDragStart(event)" ondragover="eventImgDragOver(event)"
+         ondragleave="eventImgDragLeave(event)" ondrop="eventImgDrop(event)" ondragend="eventImgDragEnd(event)">
+      <div class="drag-handle"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+      <img class="multi-img-thumb" src="${img.url}" />
+      <span class="multi-img-name">${img.file ? img.file.name : img.name}</span>
+      <button class="multi-img-remove" onclick="eventImgRemove(${i})">&#215;</button>
+    </div>`).join('');
+}
+
+/* Drag-and-drop reordering for event photos */
+let _eventImgDragSrc = null;
+
+function eventImgDragStart(e) {
+  _eventImgDragSrc = e.currentTarget;
+  _eventImgDragSrc.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', _eventImgDragSrc.dataset.idx);
+}
+
+function eventImgDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const target = e.currentTarget;
+  if (target !== _eventImgDragSrc) target.classList.add('drag-over');
+}
+
+function eventImgDragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
+
+function eventImgDrop(e) {
+  e.preventDefault();
+  const target = e.currentTarget;
+  target.classList.remove('drag-over');
+  if (!_eventImgDragSrc || _eventImgDragSrc === target) return;
+  const srcIdx = parseInt(_eventImgDragSrc.dataset.idx);
+  const tgtIdx = parseInt(target.dataset.idx);
+  const [moved] = _eventImages.splice(srcIdx, 1);
+  _eventImages.splice(tgtIdx, 0, moved);
+  renderEventImgList();
+}
+
+function eventImgDragEnd(e) {
+  e.currentTarget.classList.remove('dragging');
+  document.querySelectorAll('#eventImgList .multi-img-item').forEach(i => i.classList.remove('drag-over'));
+  _eventImgDragSrc = null;
+}
+
+async function saveEventBatch() {
+  const type = gv('mType');
+  const baseOrder = parseInt(gv('mOrder')) || 0;
+  if (!type) { alert('Heading is required.'); return; }
+  if (_eventImages.length === 0) { alert('Please add at least one photo.'); return; }
+
+  const btn = document.getElementById('eventBatchSaveBtn');
+  btn.disabled = true;
+  try {
+    const { storage, ref, uploadBytesResumable, getDownloadURL, db, collection, addDoc } = window._fb;
+    for (let i = 0; i < _eventImages.length; i++) {
+      const img = _eventImages[i];
+      btn.textContent = `Uploading ${i + 1} of ${_eventImages.length}…`;
+      const storageRef = ref(storage, `events/${Date.now()}_${i}_${img.file.name}`);
+      const url = await new Promise((resolve, reject) => {
+        const task = uploadBytesResumable(storageRef, img.file);
+        task.on('state_changed', null, reject, async () => resolve(await getDownloadURL(task.snapshot.ref)));
+      });
+      await addDoc(collection(db, 'events'), { type, order: baseOrder + i, imageUrl: url });
+    }
+    closeModal(); await loadEvents(); showToast(`${_eventImages.length} photo${_eventImages.length!==1?'s':''} uploaded!`);
+  } catch(e) {
+    console.error(e); alert('Upload failed. Try again.');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Upload Photos';
+  }
+}
+
+/* ── Capacity Stats ─────────────────────── */
+async function loadCapacity() {
+  const { db, collection, getDocs, query, orderBy } = window._fb;
+  const snap = await getDocs(query(collection(db, 'capacity_stats'), orderBy('order')));
+  const items = []; snap.forEach(d => items.push({ id: d.id, ...d.data() }));
+  const el = document.getElementById('capacityList');
+  if (items.length === 0) { el.innerHTML = '<div class="empty-state">No capacity stats yet</div>'; return; }
+  el.innerHTML = items.map(s => `
+    <div class="stat-card">
+      <div class="stat-card-value">${s.value}</div>
+      <div class="stat-card-label">${s.label}</div>
+      <div class="stat-card-actions">
+        <button class="btn btn-outline btn-sm" onclick="openCapacityModal('${s.id}')">Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteItem('capacity_stats','${s.id}')">Delete</button>
+      </div>
+    </div>`).join('');
+}
+
+function openCapacityModal(editId) {
+  openModal(editId ? 'Edit Stat' : 'Add Stat');
+  document.getElementById('modalBody').innerHTML = `
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Value</label><input class="form-input" id="mValue" placeholder="e.g. 200" /></div>
+      <div class="form-group"><label class="form-label">Label</label><input class="form-input" id="mLabel" placeholder="e.g. Max Guests" /></div>
+    </div>
+    <div class="form-group"><label class="form-label">Display Order</label><input type="number" class="form-input" id="mOrder" value="0" min="0" /></div>`;
+  document.getElementById('modalFooter').innerHTML = `
+    <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    <button class="btn btn-copper" onclick="saveCapacity('${editId||''}')">Save</button>`;
+  if (editId) loadEditData('capacity_stats', editId, ['mValue:value','mLabel:label','mOrder:order']);
+}
+
+async function saveCapacity(editId) {
+  const data = { value: gv('mValue'), label: gv('mLabel'), order: parseInt(gv('mOrder')) || 0 };
+  if (!data.value || !data.label) { alert('Value and label are required.'); return; }
+  await saveItem('capacity_stats', editId, data);
+  closeModal(); await loadCapacity(); showToast('Stat saved');
+}
+
+/* ── Bookings ───────────────────────────── */
+/* Original date the booking was made (read-only — never edited anywhere). */
+function _fmtBookedOn(ts, withTime) {
+  if (!ts) return '—';
+  let d = null;
+  if (typeof ts.toDate === 'function') d = ts.toDate();
+  else if (typeof ts.seconds === 'number') d = new Date(ts.seconds * 1000);
+  else if (ts instanceof Date) d = ts;
+  else if (typeof ts === 'string' || typeof ts === 'number') d = new Date(ts);
+  if (!d || isNaN(d.getTime())) return '—';
+  const datePart = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  if (!withTime) return datePart;
+  return datePart + ' · ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+/* ── Payment status helpers (deposit / balance / cash) ── */
+const _money = n => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function _hasBalance(b) { return (b.status === 'confirmed') && typeof b.balanceDue === 'number' && b.balanceDue > 0; }
+function _payBadge(b) {
+  if (b.status !== 'confirmed' || typeof b.balanceDue !== 'number') return '';
+  if (b.balanceDue > 0) return `<div style="margin-top:4px;font-size:0.62rem;font-weight:700;color:#D97706;line-height:1.4;">${_money(b.amountPaid)} paid · ${_money(b.balanceDue)} due</div>`;
+  return `<div style="margin-top:4px;font-size:0.62rem;font-weight:700;color:var(--success);">Paid in full</div>`;
+}
+function _cashBtn(b, full) {
+  if (!_hasBalance(b)) return '';
+  return `<button class="btn btn-sm" onclick="markBalancePaidCash('${b.id}')" title="Guest paid the remaining balance in cash" style="${full ? 'flex:1 1 100%;justify-content:center;' : 'margin-left:4px;'}background:rgba(5,150,105,0.12);color:var(--success);border:1px solid rgba(5,150,105,0.35);">💵 Mark balance paid (cash)</button>`;
+}
+async function markBalancePaidCash(bookingId) {
+  const { db, doc, updateDoc, serverTimestamp } = window._fb;
+  try {
+    const { getDoc } = await import('https://www.gstatic.com/firebasejs/11.7.3/firebase-firestore.js');
+    const ref = doc(db, 'bookings', bookingId), snap = await getDoc(ref);
+    if (!snap.exists()) { showToast('Booking not found.'); return; }
+    const b = snap.data();
+    const bal = Number(b.balanceDue) || 0;
+    if (!(bal > 0)) { showToast('This booking has no balance due.'); await loadBookings(); return; }
+    if (!confirm(`Confirm you have received ${_money(bal)} in cash from ${b.guestName || 'the guest'}?\n\nThis will mark the booking as paid in full and cannot be undone from here.`)) return;
+    const paid = Math.round(((Number(b.amountPaid) || 0) + bal) * 100) / 100;
+    const payments = Array.isArray(b.payments) ? b.payments.slice() : [];
+    payments.push({ type: 'cash', amount: Math.round(bal * 100) / 100, ref: 'CASH', at: Date.now() });
+    await updateDoc(ref, { amountPaid: paid, balanceDue: 0, payments, balancePaidAt: serverTimestamp(), cashReceived: true });
+    showToast('Balance marked as paid (cash).');
+    await loadBookings();
+  } catch (e) { showToast('Error: ' + e.message); }
+}
+
+async function loadBookings() {
+  const { db, collection, getDocs, query, orderBy } = window._fb;
+  try {
+    const snap = await getDocs(query(collection(db, 'bookings'), orderBy('createdAt', 'desc')));
+    const items = []; snap.forEach(d => items.push({ id: d.id, ...d.data() }));
+
+    window._pendingBookings = items.filter(b => (b.status || 'pending') === 'pending').length;
+    try { _updatePendingPill(); } catch(e) {}
+
+    const emptyEl = document.getElementById('bookingsEmpty');
+    if (items.length === 0) { emptyEl.style.display = 'block'; document.getElementById('bookingsTableBody').innerHTML = ''; document.getElementById('bookingCardsList').innerHTML = ''; return; }
+    emptyEl.style.display = 'none';
+
+    const fmtDate = s => { if (!s) return '—'; const [y,m,d] = s.split('-'); return new Date(y,m-1,d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); };
+
+    document.getElementById('bookingsTableBody').innerHTML = items.map(b => {
+      const st = b.status || 'pending';
+      const email = b.email || b.guestEmail || '—';
+      const roomLabel = b.roomName || b.roomId || '—';
+      let totalStr = '—';
+      if (typeof b.total === 'number') {
+        totalStr = `$${b.total.toLocaleString()}`;
+        if (b.discountApplied > 0) totalStr += ` <span style="color:var(--success);font-size:0.6rem;">(-$${b.discountApplied})</span>`;
+      }
+      return `<tr>
+        <td>${b.guestName || '—'}</td>
+        <td style="font-size:0.75rem;">${email}</td>
+        <td>${b.phone || '—'}</td>
+        <td>${roomLabel}</td>
+        <td>${fmtDate(b.checkIn)}<div style="font-size:0.6rem;color:var(--text-dim);">${STAY_TIMES.in}</div></td>
+        <td>${fmtDate(b.checkOut)}<div style="font-size:0.6rem;color:var(--text-dim);">${STAY_TIMES.out}</div></td>
+        <td style="text-align:center;">${b.nights || '—'}</td>
+        <td style="white-space:nowrap;" title="Date this booking was originally made">${_fmtBookedOn(b.createdAt)}<div style="font-size:0.6rem;color:var(--text-dim);">booked</div></td>
+        <td><span class="status-pill ${st === 'pending' ? 'st-pending' : st === 'cancelled' ? 'st-cancelled' : 'st-confirmed'}">${st}</span>${_payBadge(b)}${_addOnTags(b.addOns)}</td>
+        <td style="white-space:nowrap;">
+          <button class="btn btn-outline btn-sm" onclick="openEditBookingDates('${b.id}')" title="Edit dates">✏️ Dates</button>
+          ${_cashBtn(b, false)}
+          ${st !== 'cancelled' ? `<button class="btn btn-danger btn-sm" onclick="cancelBooking('${b.id}')" style="margin-left:4px;" title="Cancel booking">Cancel</button>` : ''}
+        </td>
+      </tr>`;
+    }).join('');
+
+    document.getElementById('bookingCardsList').innerHTML = items.map(b => {
+      const st = b.status || 'pending';
+      const email = b.email || b.guestEmail || '—';
+      const roomLabel = b.roomName || b.roomId || '—';
+      return `<div class="booking-card">
+        <div class="booking-card-name">${b.guestName || '—'}</div>
+        <div class="booking-card-row"><span>Email</span><span style="font-size:0.7rem;">${email}</span></div>
+        <div class="booking-card-row"><span>Phone</span><span>${b.phone || '—'}</span></div>
+        <div class="booking-card-row"><span>Room</span><span>${roomLabel}</span></div>
+        <div class="booking-card-row"><span>Check-in</span><span>${fmtDate(b.checkIn)} · ${STAY_TIMES.in}</span></div>
+        <div class="booking-card-row"><span>Check-out</span><span>${fmtDate(b.checkOut)} · ${STAY_TIMES.out}</span></div>
+        <div class="booking-card-row"><span>Nights</span><span>${b.nights || '—'}</span></div>
+        <div class="booking-card-row" title="Date this booking was originally made"><span>Booked on</span><span>${_fmtBookedOn(b.createdAt)}</span></div>
+        ${(typeof b.adults === 'number') ? `<div class="booking-card-row"><span>Guests</span><span>${b.adults} adult${b.adults!==1?'s':''}${b.children ? ' + ' + b.children + ' child' + (b.children!==1?'ren':'') : ''}</span></div>` : ''}
+        ${typeof b.total === 'number' ? `<div class="booking-card-row"><span>Total</span><span style="color:var(--copper-shine);font-weight:700;">$${b.total.toLocaleString()}${b.discountApplied > 0 ? ` <span style="color:var(--success);font-size:0.65rem;">(-$${b.discountApplied})</span>` : ''}</span></div>` : ''}
+        <div class="booking-card-row" style="margin-top:0.5rem;">
+          <span>Status</span>
+          <span class="status-pill ${st === 'pending' ? 'st-pending' : st === 'cancelled' ? 'st-cancelled' : 'st-confirmed'}">${st}</span>
+        </div>
+        ${(st === 'confirmed' && typeof b.balanceDue === 'number') ? `<div class="booking-card-row"><span>Payment</span><span style="font-weight:700;color:${b.balanceDue > 0 ? '#D97706' : 'var(--success)'};">${b.balanceDue > 0 ? _money(b.amountPaid) + ' paid · ' + _money(b.balanceDue) + ' due' : 'Paid in full'}</span></div>` : ''}
+        ${(Array.isArray(b.addOns) && b.addOns.length) ? `<div style="margin-top:0.6rem;padding-top:0.6rem;border-top:1px solid var(--border);">
+          <div style="font-size:0.6rem;letter-spacing:0.14em;text-transform:uppercase;color:var(--text-dim);margin-bottom:0.4rem;">Add-ons requested</div>
+          ${_addOnTags(b.addOns)}
+        </div>` : ''}
+        <div style="display:flex;gap:0.5rem;margin-top:0.75rem;flex-wrap:wrap;">
+          ${_cashBtn(b, true)}
+          <button class="btn btn-outline btn-sm" onclick="openEditBookingDates('${b.id}')" style="flex:1;justify-content:center;">✏️ Edit Dates</button>
+          ${st !== 'cancelled' ? `<button class="btn btn-danger btn-sm" onclick="cancelBooking('${b.id}')" style="flex:1;justify-content:center;">Cancel</button>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) { console.warn('Bookings error:', e); }
+}
+
+/* ══════════════════════════════════════════════════════════
+   SERVICE REQUESTS (Island tours / Airport transfers /
+   Family retreats / Custom concierge enquiries)
+   ══════════════════════════════════════════════════════════ */
+const STAY_TIMES = { in: '2:00 PM', out: '11:00 AM' };
+
+let _reqItems = [];
+let _reqFilter = 'all';
+
+const REQ_STATUSES = [
+  { id: 'new',        label: 'New' },
+  { id: 'inprogress', label: 'Arranging' },
+  { id: 'confirmed',  label: 'Confirmed' },
+  { id: 'declined',   label: 'Declined' }
+];
+
+function _reqStatusLabel(id) {
+  const f = REQ_STATUSES.find(x => x.id === id);
+  return f ? f.label : (id || 'New');
+}
+
+function _reqFmtDate(str) {
+  if (!str) return '—';
+  const p = String(str).split('-');
+  if (p.length !== 3) return str;
+  return new Date(+p[0], +p[1] - 1, +p[2]).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function _reqFmtCreated(ts) {
+  if (!ts || !ts.seconds) return '';
+  const d = new Date(ts.seconds * 1000);
+  const diff = (Date.now() - d.getTime()) / 1000;
+  if (diff < 60)    return 'just now';
+  if (diff < 3600)  return Math.floor(diff / 60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+  if (diff < 604800) return Math.floor(diff / 86400) + 'd ago';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function _addOnTags(addOns) {
+  if (!Array.isArray(addOns) || !addOns.length) return '';
+  return addOns.map(a => `<span class="addon-tag" title="${_esc(a.details || '')}">${_esc(a.label || a.id)}</span>`).join('');
+}
+
+function _esc(v) {
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+async function loadServiceRequests() {
+  const grid  = document.getElementById('reqGrid');
+  const empty = document.getElementById('reqEmpty');
+  if (!grid) return;
+  try {
+    const { db, collection, getDocs } = window._fb;
+    const snap = await getDocs(collection(db, 'serviceRequests'));
+    _reqItems = [];
+    snap.forEach(d => _reqItems.push({ id: d.id, ...d.data() }));
+    _reqItems.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+  } catch (e) {
+    console.warn('Service requests error:', e);
+    grid.innerHTML = '';
+    if (empty) { empty.style.display = 'block'; empty.textContent = 'Could not load service requests'; }
+    return;
+  }
+  _renderReqToolbar();
+  _renderReqGrid();
+  _updatePendingPill();
+}
+
+function _renderReqToolbar() {
+  const bar = document.getElementById('reqToolbar');
+  if (!bar) return;
+  const counts = { all: _reqItems.length };
+  REQ_STATUSES.forEach(st => {
+    counts[st.id] = _reqItems.filter(r => (r.status || 'new') === st.id).length;
+  });
+  const chips = [{ id: 'all', label: 'All' }].concat(REQ_STATUSES);
+  bar.innerHTML = chips.map(c =>
+    `<button class="req-chip ${_reqFilter === c.id ? 'active' : ''}" onclick="setReqFilter('${c.id}')">${c.label}<span class="cnt">${counts[c.id] || 0}</span></button>`
+  ).join('');
+}
+
+function setReqFilter(f) {
+  _reqFilter = f;
+  _renderReqToolbar();
+  _renderReqGrid();
+}
+
+function _renderReqGrid() {
+  const grid  = document.getElementById('reqGrid');
+  const empty = document.getElementById('reqEmpty');
+  if (!grid) return;
+
+  const items = _reqFilter === 'all'
+    ? _reqItems
+    : _reqItems.filter(r => (r.status || 'new') === _reqFilter);
+
+  if (!items.length) {
+    grid.innerHTML = '';
+    if (empty) {
+      empty.style.display = 'block';
+      empty.textContent = _reqItems.length
+        ? 'No requests with this status'
+        : 'No service requests yet';
+    }
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+
+  grid.innerHTML = items.map(r => {
+    const st = r.status || 'new';
+    const rows = [];
+
+    rows.push(`<div class="req-row"><span>Guest</span><span>${_esc(r.guestName || '—')}</span></div>`);
+    if (r.phone) rows.push(`<div class="req-row"><span>Phone</span><span><a href="tel:${_esc(r.phone)}">${_esc(r.phone)}</a></span></div>`);
+    if (r.email) rows.push(`<div class="req-row"><span>Email</span><span><a href="mailto:${_esc(r.email)}">${_esc(r.email)}</a></span></div>`);
+    if (r.bookingRoom) {
+      const stay = r.bookingCheckIn ? ` · ${_reqFmtDate(r.bookingCheckIn)}` : '';
+      rows.push(`<div class="req-row"><span>Stay</span><span>${_esc(r.bookingRoom)}${stay}</span></div>`);
+    }
+
+    // Service-specific details, whatever the guest filled in
+    const det = Array.isArray(r.details) ? r.details : [];
+    det.forEach(d => {
+      if (d && d.value) rows.push(`<div class="req-row"><span>${_esc(d.label)}</span><span>${_esc(d.value)}</span></div>`);
+    });
+
+    // Legacy shape support (older requests saved before this update)
+    if (!det.length) {
+      if (r.preferredDate) rows.push(`<div class="req-row"><span>Preferred</span><span>${_reqFmtDate(r.preferredDate)}</span></div>`);
+      if (r.guests) rows.push(`<div class="req-row"><span>Guests</span><span>${_esc(r.guests)}</span></div>`);
+      if (r.flight) {
+        if (r.flight.airport) rows.push(`<div class="req-row"><span>Airport</span><span>${_esc(r.flight.airport)}</span></div>`);
+        const fl = [r.flight.flightNumber, r.flight.arrivalTime].filter(Boolean).join(' · ');
+        if (fl) rows.push(`<div class="req-row"><span>Flight</span><span>${_esc(fl)}</span></div>`);
+        rows.push(`<div class="req-row"><span>Return trip</span><span>${r.flight.returnTrip ? 'Yes' : 'No'}</span></div>`);
+      }
+    }
+
+    const msg = r.message || r.notes;
+    const fromBooking = r.source === 'booking';
+
+    return `<div class="req-card is-${st}">
+      <div class="req-card-top">
+        <div style="min-width:0;">
+          <div class="req-service">${_esc(r.serviceLabel || 'Request')}</div>
+          <div class="req-when">${_reqFmtCreated(r.createdAt)}${fromBooking ? ' · added at booking' : ''}</div>
+        </div>
+        <span class="status-pill st-${st}">${_reqStatusLabel(st)}</span>
+      </div>
+      ${fromBooking ? '<div class="req-source">Added during room booking</div>' : ''}
+      <div class="req-guest">${rows.join('')}</div>
+      ${msg ? `<div class="req-notes">${_esc(msg)}</div>` : ''}
+      ${r.adminNote ? `<div class="req-internal"><strong>Internal note · staff only</strong>${_esc(r.adminNote)}</div>` : ''}
+      <div class="req-actions">
+        <button class="btn btn-copper btn-sm" onclick="openReqManage('${r.id}')">Manage</button>
+        ${r.phone ? `<a class="btn btn-outline btn-sm" href="tel:${_esc(r.phone)}" style="justify-content:center;">Call</a>` : ''}
+        ${r.email ? `<a class="btn btn-outline btn-sm" href="mailto:${_esc(r.email)}?subject=${encodeURIComponent("Your request: " + (r.serviceLabel || 'Service'))}" style="justify-content:center;">Email</a>` : ''}
+        <button class="btn btn-danger btn-sm" onclick="deleteServiceRequest('${r.id}')">Delete</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ── Manage modal: set status + reply to guest ── */
+function openReqManage(id) {
+  const r = _reqItems.find(x => x.id === id);
+  if (!r) return;
+  const st = r.status || 'new';
+
+  openModal('Manage Request');
+  document.getElementById('modalBody').innerHTML = `
+    <div style="margin-bottom:1.25rem;padding:0.875rem 1rem;background:rgba(184,115,51,0.04);border:1px solid var(--border-copper);border-radius:8px;">
+      <div style="font-family:'Cormorant Garamond',serif;font-size:1.2rem;color:var(--text);margin-bottom:0.2rem;">${_esc(r.serviceLabel || 'Request')}</div>
+      <div style="font-size:0.72rem;color:var(--text-dim);">from ${_esc(r.guestName || 'Guest')}${r.email ? ' · ' + _esc(r.email) : ''}</div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Status</label>
+      <div class="promo-type-row" style="grid-template-columns:1fr 1fr;">
+        ${REQ_STATUSES.map(x => `<div class="promo-type-opt ${st === x.id ? 'selected' : ''}" id="rqOpt-${x.id}" onclick="setReqModalStatus('${x.id}')">${x.label}</div>`).join('')}
+      </div>
+      <input type="hidden" id="rqStatus" value="${st}" />
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Internal note <span style="font-weight:400;color:var(--text-dim);">(staff only — the guest never sees this)</span></label>
+      <textarea class="form-textarea" id="rqNote" placeholder="e.g. Called guest 3pm — driver Marlon assigned, $60 each way, confirmed for the 14th.">${_esc(r.adminNote || '')}</textarea>
+    </div>
+
+    <div style="padding:0.75rem 0.875rem;background:rgba(184,115,51,0.04);border:1px solid var(--border-copper);border-radius:8px;font-size:0.72rem;color:var(--text-2);line-height:1.6;">
+      The guest only sees the status above. Reach them directly on
+      ${r.phone ? `<a href="tel:${_esc(r.phone)}" style="color:var(--copper-shine);">${_esc(r.phone)}</a>` : 'the number on file'}
+      ${r.email ? ` or <a href="mailto:${_esc(r.email)}" style="color:var(--copper-shine);">${_esc(r.email)}</a>` : ''}.
+    </div>`;
+
+  document.getElementById('modalFooter').innerHTML = `
+    <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    <button class="btn btn-copper" id="rqSaveBtn" onclick="saveReqManage('${id}')">Save</button>`;
+}
+
+function setReqModalStatus(id) {
+  REQ_STATUSES.forEach(x => {
+    const el = document.getElementById('rqOpt-' + x.id);
+    if (el) el.classList.toggle('selected', x.id === id);
+  });
+  const h = document.getElementById('rqStatus');
+  if (h) h.value = id;
+}
+
+async function saveReqManage(id) {
+  const btn = document.getElementById('rqSaveBtn');
+  const status = document.getElementById('rqStatus').value;
+  const note   = (document.getElementById('rqNote').value || '').trim();
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  try {
+    const { db, doc, updateDoc, serverTimestamp } = window._fb;
+    await updateDoc(doc(db, 'serviceRequests', id), {
+      status,
+      adminNote: note || null,
+      updatedAt: serverTimestamp()
+    });
+    closeModal();
+    showToast('Request updated.');
+    await loadServiceRequests();
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+    showToast('Error: ' + e.message);
+  }
+}
+
+async function deleteServiceRequest(id) {
+  if (!confirm('Delete this request permanently?')) return;
+  try {
+    const { db, doc, deleteDoc } = window._fb;
+    await deleteDoc(doc(db, 'serviceRequests', id));
+    showToast('Request deleted.');
+    await loadServiceRequests();
+  } catch (e) { showToast('Error: ' + e.message); }
+}
+
+/* ── Combined pending indicator (bookings + requests) ── */
+window._pendingBookings = 0;
+function _updatePendingPill() {
+  const all = (typeof _reqItems !== 'undefined' && Array.isArray(_reqItems)) ? _reqItems : [];
+  const newReqs = all.filter(r => (r.status || 'new') === 'new').length;
+
+  const badge = document.getElementById('reqNavBadge');
+  if (badge) {
+    badge.textContent = newReqs;
+    badge.style.display = newReqs > 0 ? 'inline-flex' : 'none';
+  }
+
+  const total = (window._pendingBookings || 0) + newReqs;
+  const pill = document.getElementById('pendingPill');
+  const pt   = document.getElementById('pendingText');
+  if (pill) pill.style.display = total > 0 ? 'inline-flex' : 'none';
+  if (pt) {
+    const parts = [];
+    if (window._pendingBookings > 0) parts.push(window._pendingBookings + ' booking' + (window._pendingBookings !== 1 ? 's' : ''));
+    if (newReqs > 0) parts.push(newReqs + ' request' + (newReqs !== 1 ? 's' : ''));
+    pt.textContent = parts.length ? parts.join(' · ') + ' pending' : '0 pending';
+  }
+}
+
+async function cancelBooking(bookingId) {
+  if (!confirm('Cancel this booking? The guest will need to be notified separately.')) return;
+  const { db, doc, updateDoc } = window._fb;
+  try {
+    await updateDoc(doc(db, 'bookings', bookingId), { status: 'cancelled' });
+    showToast('Booking cancelled.');
+    await loadBookings();
+  } catch(e) { showToast('Error: ' + e.message); }
+}
+
+/* ── Edit Booking Dates (same calendar logic as guest site) ── */
+let _editBookingId = null;
+let _editCalMonth = null, _editCalYear = null;
+let _editPickState = 'checkin';
+let _editRoomName = '';
+let _editPricePerNight = 0;
+let _editBookedRanges = [];
+
+async function openEditBookingDates(bookingId) {
+  _editBookingId = bookingId;
+  _editPickState = 'checkin';
+
+  // Load the booking
+  const { db, doc, collection, getDocs, query, where } = window._fb;
+  const { getDoc } = await import('https://www.gstatic.com/firebasejs/11.7.3/firebase-firestore.js');
+  const snap = await getDoc(doc(db, 'bookings', bookingId));
+  if (!snap.exists()) { showToast('Booking not found.'); return; }
+  const b = snap.data();
+  _editRoomName = b.roomName || b.roomId || '';
+  _editPricePerNight = b.pricePerNight || 0;
+
+  // Load other bookings for same room to block out
+  try {
+    const roomSnap = await getDocs(query(collection(db, 'bookings'), where('roomName', '==', _editRoomName), where('status', 'in', ['confirmed','pending'])));
+    _editBookedRanges = [];
+    roomSnap.forEach(d => {
+      if (d.id !== bookingId) _editBookedRanges.push({ checkIn: d.data().checkIn, checkOut: d.data().checkOut });
+    });
+  } catch(e) { _editBookedRanges = []; }
+
+  const now = new Date();
+  _editCalMonth = now.getMonth(); _editCalYear = now.getFullYear();
+
+  openModal('Edit Booking Dates — ' + (b.guestName || ''));
+  document.getElementById('modalBody').innerHTML = `
+    <div id="editCalendar" style="background:#1A2035;border:1px solid var(--border-copper);border-radius:8px;padding:1rem;margin-bottom:0.75rem;"></div>
+    <div id="editDateStrip" style="display:none;background:rgba(37,99,235,0.08);border:1px solid rgba(37,99,235,0.2);border-radius:6px;padding:0.75rem 1rem;margin-bottom:0.75rem;">
+      <div id="editDateStripText" style="font-size:0.82rem;color:#60A5FA;font-weight:600;"></div>
+      <div id="editDateStripSub" style="font-size:0.72rem;color:var(--text-dim);margin-top:2px;"></div>
+    </div>
+    <input type="hidden" id="editCheckIn" value="${b.checkIn || ''}" />
+    <input type="hidden" id="editCheckOut" value="${b.checkOut || ''}" />
+    <div id="editPriceSummary" style="display:none;background:rgba(184,115,51,0.06);border:1px solid var(--border-copper);border-radius:6px;padding:0.875rem 1rem;margin-bottom:0.75rem;font-size:0.8rem;"></div>
+    <p id="editError" style="color:var(--danger);font-size:0.75rem;display:none;"></p>`;
+
+  document.getElementById('modalFooter').innerHTML = `
+    <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    <button class="btn btn-copper" id="editSaveBtn" onclick="saveEditedDates()">Save Changes</button>`;
+
+  // Pre-populate with existing dates and render
+  renderEditCalendar();
+  updateEditDateStrip();
+  updateEditPriceSummary();
+}
+
+function editCalNav(delta) {
+  _editCalMonth += delta;
+  if (_editCalMonth > 11) { _editCalMonth = 0; _editCalYear++; }
+  if (_editCalMonth < 0)  { _editCalMonth = 11; _editCalYear--; }
+  renderEditCalendar();
+}
+
+function editCalSelectDate(dateStr) {
+  const ci = document.getElementById('editCheckIn').value;
+  if (_editPickState === 'checkin' || !ci) {
+    document.getElementById('editCheckIn').value = dateStr;
+    document.getElementById('editCheckOut').value = '';
+    _editPickState = 'checkout';
+  } else {
+    if (dateStr <= ci) {
+      document.getElementById('editCheckIn').value = dateStr;
+      document.getElementById('editCheckOut').value = '';
+      _editPickState = 'checkout';
+    } else {
+      const blocked = _editBookedRanges.some(r => ci < r.checkOut && dateStr > r.checkIn);
+      if (blocked) {
+        document.getElementById('editCheckIn').value = dateStr;
+        document.getElementById('editCheckOut').value = '';
+        _editPickState = 'checkout';
+      } else {
+        document.getElementById('editCheckOut').value = dateStr;
+        _editPickState = 'checkin';
+      }
+    }
+  }
+  renderEditCalendar();
+  updateEditDateStrip();
+  updateEditPriceSummary();
+}
+
+function renderEditCalendar() {
+  const cal = document.getElementById('editCalendar');
+  if (!cal) return;
+  const now = new Date();
+  const year = _editCalYear, month = _editCalMonth;
+  const monthName = new Date(year, month).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const ciVal = document.getElementById('editCheckIn')?.value || '';
+  const coVal = document.getElementById('editCheckOut')?.value || '';
+  const todayStr = window._localToday();
+  const atCurrent = (year === now.getFullYear() && month === now.getMonth());
+
+  function isBooked(ds) { return _editBookedRanges.some(r => ds >= r.checkIn && ds < r.checkOut); }
+
+  let html = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.625rem;">
+    <button onclick="editCalNav(-1)" ${atCurrent?'disabled style="opacity:0.25;cursor:default;width:28px;height:28px;border-radius:5px;border:1px solid var(--border-copper);background:rgba(255,255,255,0.04);font-size:1rem;color:var(--text-dim);"':'style="width:28px;height:28px;border-radius:5px;border:1px solid var(--border-copper);background:rgba(255,255,255,0.04);cursor:pointer;color:var(--copper-shine);font-size:1rem;"'}>&#8249;</button>
+    <div style="font-size:0.8rem;font-weight:700;color:var(--text);letter-spacing:0.03em;">${monthName}</div>
+    <button onclick="editCalNav(1)" style="width:28px;height:28px;border-radius:5px;border:1px solid var(--border-copper);background:rgba(255,255,255,0.04);cursor:pointer;color:var(--copper-shine);font-size:1rem;">&#8250;</button>
+  </div><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;">`;
+  ['Su','Mo','Tu','We','Th','Fr','Sa'].forEach(d => { html += `<div style="text-align:center;font-size:0.6rem;font-weight:700;color:var(--text-dim);padding:4px 0;text-transform:uppercase;letter-spacing:0.06em;">${d}</div>`; });
+  for (let i = 0; i < firstDay; i++) html += '<div></div>';
+  for (let d = 1; d <= daysInMonth; d++) {
+    const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const isPast = ds < todayStr;
+    const booked = isBooked(ds);
+    const isCi = ds === ciVal, isCo = ds === coVal;
+    const inRange = ciVal && coVal && ds > ciVal && ds < coVal;
+    if (isPast || booked) {
+      html += `<div style="text-align:center;padding:6px 2px;font-size:0.75rem;border-radius:5px;color:var(--text-dim);text-decoration:line-through;cursor:not-allowed;user-select:none;" title="${booked?'Booked':''}">${d}</div>`;
+    } else if (isCi || isCo) {
+      html += `<div onclick="editCalSelectDate('${ds}')" style="text-align:center;padding:6px 2px;font-size:0.75rem;border-radius:5px;background:#1D4ED8;color:#fff;font-weight:700;cursor:pointer;user-select:none;">${d}</div>`;
+    } else if (inRange) {
+      html += `<div onclick="editCalSelectDate('${ds}')" style="text-align:center;padding:6px 2px;font-size:0.75rem;border-radius:5px;background:rgba(37,99,235,0.2);color:#60A5FA;font-weight:600;cursor:pointer;user-select:none;">${d}</div>`;
+    } else {
+      html += `<div onclick="editCalSelectDate('${ds}')" style="text-align:center;padding:6px 2px;font-size:0.75rem;border-radius:5px;background:rgba(37,99,235,0.08);color:#60A5FA;font-weight:600;border:1px solid rgba(37,99,235,0.2);cursor:pointer;user-select:none;" onmouseover="this.style.background='rgba(37,99,235,0.2)'" onmouseout="this.style.background='rgba(37,99,235,0.08)'">${d}</div>`;
+    }
+  }
+  const instruction = !ciVal ? 'Tap a date to set check-in' : (!coVal ? 'Now tap check-out date' : 'Tap any date to change');
+  html += `</div><div style="display:flex;align-items:center;justify-content:space-between;margin-top:0.75rem;flex-wrap:wrap;gap:0.5rem;">
+    <div style="display:flex;gap:1rem;font-size:0.65rem;color:var(--text-dim);">
+      <span style="display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:10px;height:10px;background:rgba(37,99,235,0.12);border:1px solid rgba(37,99,235,0.3);border-radius:2px;"></span>Available</span>
+      <span style="display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:10px;height:10px;background:rgba(255,255,255,0.05);border-radius:2px;"></span>Unavailable</span>
+      ${ciVal?`<span style="display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:10px;height:10px;background:#1D4ED8;border-radius:2px;"></span>Selected</span>`:''}
+    </div>
+    <span style="font-size:0.65rem;color:var(--copper-shine);font-style:italic;">${instruction}</span>
+  </div>`;
+  cal.innerHTML = html;
+}
+
+function updateEditDateStrip() {
+  const ci = document.getElementById('editCheckIn')?.value || '';
+  const co = document.getElementById('editCheckOut')?.value || '';
+  const strip = document.getElementById('editDateStrip');
+  const txt   = document.getElementById('editDateStripText');
+  const sub   = document.getElementById('editDateStripSub');
+  if (!strip) return;
+  const fmt = s => { const [y,m,d] = s.split('-'); return new Date(y,m-1,d).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'}); };
+  if (!ci && !co) { strip.style.display = 'none'; return; }
+  strip.style.display = 'block';
+  if (ci && !co) {
+    txt.innerHTML = `<span style="opacity:0.6;font-weight:500;">Check-In:</span> ${fmt(ci)}`;
+    sub.textContent = 'Now tap a check-out date';
+  } else if (ci && co) {
+    const nights = Math.round((new Date(co)-new Date(ci))/86400000);
+    txt.innerHTML = `<span style="opacity:0.6;font-weight:500;">Check-In:</span> ${fmt(ci)} &nbsp;→&nbsp; <span style="opacity:0.6;font-weight:500;">Check-Out:</span> ${fmt(co)}`;
+    sub.textContent = `${nights} night${nights!==1?'s':''} · Tap any date to change`;
+  }
+}
+
+function updateEditPriceSummary() {
+  const ci = document.getElementById('editCheckIn')?.value || '';
+  const co = document.getElementById('editCheckOut')?.value || '';
+  const el = document.getElementById('editPriceSummary');
+  if (!el || !ci || !co || co <= ci) { if(el) el.style.display='none'; return; }
+  const nights = Math.round((new Date(co)-new Date(ci))/86400000);
+  if (nights <= 0) { el.style.display='none'; return; }
+  if (!_editPricePerNight) { el.style.display='none'; return; }
+  const base = _editPricePerNight * nights;
+  el.innerHTML = `<div style="display:flex;justify-content:space-between;color:var(--text-2);margin-bottom:4px;"><span>${nights} night${nights!==1?'s':''} × $${_editPricePerNight}</span><span>$${base.toLocaleString()}</span></div><div style="display:flex;justify-content:space-between;color:var(--text);font-weight:700;border-top:1px solid var(--border-copper);padding-top:6px;margin-top:4px;"><span>New Total</span><span style="color:var(--copper-shine);">$${base.toLocaleString()}</span></div>`;
+  el.style.display='block';
+}
+
+async function saveEditedDates() {
+  const ci = document.getElementById('editCheckIn')?.value || '';
+  const co = document.getElementById('editCheckOut')?.value || '';
+  const errEl = document.getElementById('editError');
+  errEl.style.display = 'none';
+  if (!ci || !co) { errEl.textContent = 'Please select both check-in and check-out dates.'; errEl.style.display='block'; return; }
+  if (co <= ci) { errEl.textContent = 'Check-out must be after check-in.'; errEl.style.display='block'; return; }
+  const nights = Math.round((new Date(co)-new Date(ci))/86400000);
+  const total  = _editPricePerNight ? _editPricePerNight * nights : null;
+  const btn = document.getElementById('editSaveBtn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const { db, doc, updateDoc } = window._fb;
+    const { getDoc } = await import('https://www.gstatic.com/firebasejs/11.7.3/firebase-firestore.js');
+    const bref = doc(db, 'bookings', _editBookingId);
+    const cur = (await getDoc(bref)).data() || {};
+    const updates = { checkIn: ci, checkOut: co, nights };
+    let overpaid = 0;
+    if (total !== null) {
+      updates.total = total; updates.baseTotal = total; updates.discountApplied = 0;
+      // keep the balance in step with the new total (only for bookings that track payments)
+      if (typeof cur.amountPaid === 'number') {
+        updates.balanceDue = Math.max(0, Math.round((total - cur.amountPaid) * 100) / 100);
+        overpaid = Math.max(0, Math.round((cur.amountPaid - total) * 100) / 100);
+      }
+    }
+    await updateDoc(bref, updates);
+    closeModal(); showToast(overpaid > 0 ? 'Dates updated. Guest has paid ' + _money(overpaid) + ' more than the new total, so arrange a refund.' : 'Dates updated!'); await loadBookings();
+  } catch(e) {
+    errEl.textContent = 'Failed: ' + e.message; errEl.style.display='block';
+    btn.disabled=false; btn.textContent='Save Changes';
+  }
+}
+
+/* ── Promotions ─────────────────────────── */
+function setPromoDiscountType(type) {
+  document.getElementById('promoDiscountType').value = type;
+  const lbl = document.getElementById('promoDiscountLabel');
+  const inp = document.getElementById('promoDiscountValue');
+  if (type === 'percent') {
+    lbl.textContent = 'Discount Percentage (%)';
+    inp.placeholder = 'e.g. 15'; inp.max = 100;
+    document.getElementById('promoTypePercent').classList.add('selected');
+    document.getElementById('promoTypeFixed').classList.remove('selected');
+  } else {
+    lbl.textContent = 'Fixed Amount Off (USD $)';
+    inp.placeholder = 'e.g. 50'; inp.removeAttribute('max');
+    document.getElementById('promoTypeFixed').classList.add('selected');
+    document.getElementById('promoTypePercent').classList.remove('selected');
+  }
+}
+
+async function createPromotion() {
+  const title = (document.getElementById('promoTitle').value || '').trim().toUpperCase();
+  const description = (document.getElementById('promoDesc').value || '').trim();
+  const discountType = document.getElementById('promoDiscountType').value;
+  const discountValue = parseFloat(document.getElementById('promoDiscountValue').value);
+  const startDate = document.getElementById('promoStartDate').value || null;
+  const endDate = document.getElementById('promoEndDate').value || null;
+  const showBookBtn = document.getElementById('promoShowBookBtn').checked;
+  const msgEl = document.getElementById('promoFormMsg');
+  msgEl.style.display = 'none';
+
+  if (!title) { msgEl.textContent = 'Please enter a promotion title.'; msgEl.style.color = 'var(--danger)'; msgEl.style.display = 'block'; return; }
+  if (!description) { msgEl.textContent = 'Please enter a description.'; msgEl.style.color = 'var(--danger)'; msgEl.style.display = 'block'; return; }
+  if (!discountValue || discountValue <= 0) { msgEl.textContent = 'Please enter a valid discount value.'; msgEl.style.color = 'var(--danger)'; msgEl.style.display = 'block'; return; }
+  if (endDate && startDate && endDate < startDate) { msgEl.textContent = 'End date must be after start date.'; msgEl.style.color = 'var(--danger)'; msgEl.style.display = 'block'; return; }
+
+  const { db, collection, addDoc, serverTimestamp } = window._fb;
+  try {
+    await addDoc(collection(db, 'promotions'), {
+      title, description, discountType, discountValue, startDate, endDate, showBookBtn, active: true,
+      createdAt: serverTimestamp()
+    });
+    // Reset form
+    document.getElementById('promoTitle').value = '';
+    document.getElementById('promoDesc').value = '';
+    document.getElementById('promoDiscountValue').value = '';
+    document.getElementById('promoStartDate').value = '';
+    document.getElementById('promoEndDate').value = '';
+    document.getElementById('promoShowBookBtn').checked = true;
+    setPromoDiscountType('percent');
+    msgEl.textContent = '✓ Promotion is now live on the site.';
+    msgEl.style.color = 'var(--success)'; msgEl.style.display = 'block';
+    setTimeout(() => { msgEl.style.display = 'none'; }, 4000);
+    showToast('Promotion posted!');
+    loadPromotionsAdmin();
+  } catch(e) {
+    msgEl.textContent = 'Failed: ' + e.message; msgEl.style.color = 'var(--danger)'; msgEl.style.display = 'block';
+  }
+}
+
+async function loadPromotionsAdmin() {
+  const container = document.getElementById('promoAdminList');
+  if (!container) return;
+  const { db, collection, getDocs, query, orderBy } = window._fb;
+  try {
+    const snap = await getDocs(query(collection(db, 'promotions'), orderBy('createdAt', 'desc')));
+    if (snap.empty) {
+      container.innerHTML = '<div class="empty-state">No promotions yet</div>'; return;
+    }
+    const today = window._localToday();
+    container.innerHTML = '';
+    snap.forEach(docSnap => {
+      const p = docSnap.data(); const id = docSnap.id;
+      const discountLabel = p.discountType === 'percent'
+        ? p.discountValue + '% OFF'
+        : '$' + Number(p.discountValue).toLocaleString() + ' OFF';
+      const isExpired = p.endDate && p.endDate < today;
+      const isUpcoming = p.startDate && p.startDate > today;
+      let statusLabel, statusClass;
+      if (isExpired) { statusLabel = 'Expired'; statusClass = 'expired'; }
+      else if (!p.active) { statusLabel = 'Paused'; statusClass = 'paused'; }
+      else if (isUpcoming) { statusLabel = 'Scheduled'; statusClass = 'scheduled'; }
+      else { statusLabel = 'Live ✦'; statusClass = 'live'; }
+
+      let datesHtml = '';
+      if (p.startDate || p.endDate) {
+        const fmt = s => { const [y,m,d] = s.split('-'); return new Date(y,m-1,d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); };
+        datesHtml = `<div class="promo-card-dates">📅 ${p.startDate ? 'From ' + fmt(p.startDate) : ''} ${p.endDate ? (p.startDate ? '→ ' : 'Until ') + fmt(p.endDate) : ''}</div>`;
+      }
+
+      const div = document.createElement('div');
+      div.className = 'promo-card' + (isExpired ? ' expired' : '') + (!p.active && !isExpired ? ' paused' : '');
+      div.innerHTML = `
+        <span class="promo-status-badge ${statusClass}">${statusLabel}</span>
+        <div class="promo-card-title">${p.title}</div>
+        <div class="promo-card-discount">${discountLabel} · Book Now: ${p.showBookBtn ? 'On' : 'Off'}</div>
+        <div class="promo-card-desc">${p.description}</div>
+        ${datesHtml}
+        <div class="promo-card-actions">
+          <button class="btn btn-outline btn-sm" onclick="togglePromoActive('${id}',${p.active})">${p.active ? 'Pause' : 'Activate'}</button>
+          <button class="btn btn-danger btn-sm" onclick="deletePromotion('${id}')">Delete</button>
+        </div>`;
+      container.appendChild(div);
+    });
+  } catch(e) { container.innerHTML = '<div class="empty-state">Failed to load promotions</div>'; }
+}
+
+async function togglePromoActive(id, currently) {
+  const { db, doc, updateDoc } = window._fb;
+  await updateDoc(doc(db, 'promotions', id), { active: !currently });
+  showToast(currently ? 'Promotion paused.' : 'Promotion activated.');
+  loadPromotionsAdmin();
+}
+
+async function deletePromotion(id) {
+  if (!confirm('Delete this promotion? This cannot be undone.')) return;
+  const { db, doc, deleteDoc } = window._fb;
+  await deleteDoc(doc(db, 'promotions', id));
+  showToast('Promotion deleted.'); loadPromotionsAdmin();
+}
+
+/* ── Page Images: Rooms Hero ─────────────── */
+function previewRoomsHero(input) {
+  const file = input.files[0]; if (!file) return;
+  const preview = document.getElementById('roomsHeroFilePreview');
+  const reader = new FileReader();
+  reader.onload = e => { preview.src = e.target.result; preview.style.display = 'block'; };
+  reader.readAsDataURL(file);
+}
+
+async function loadRoomsHeroImage() {
+  try {
+    const { db, doc } = window._fb;
+    const { getDoc } = await import('https://www.gstatic.com/firebasejs/11.7.3/firebase-firestore.js');
+    const snap = await getDoc(doc(db, 'site_settings', 'page_images'));
+    if (snap.exists() && snap.data().roomsHeroUrl) {
+      const url = snap.data().roomsHeroUrl;
+      const img = document.getElementById('roomsHeroCurrent');
+      const wrap = document.getElementById('roomsHeroCurrentWrap');
+      if (img) { img.src = url; wrap.style.display = 'block'; }
+    }
+  } catch(e) { console.warn('Could not load rooms hero:', e); }
+}
+
+async function saveRoomsHero() {
+  const fileInput = document.getElementById('roomsHeroFile');
+  if (!fileInput || !fileInput.files || !fileInput.files[0]) {
+    showToast('Please select an image first.'); return;
+  }
+  const btn = document.querySelector('#tab-pageimages .btn-copper');
+  btn.disabled = true; btn.textContent = 'Uploading…';
+  try {
+    const { storage, ref, uploadBytesResumable, getDownloadURL, db, doc, updateDoc } = window._fb;
+    const { setDoc } = await import('https://www.gstatic.com/firebasejs/11.7.3/firebase-firestore.js');
+
+    // Upload to Firebase Storage
+    const storageRef = ref(storage, `site/rooms_hero_${Date.now()}`);
+    const bar = document.getElementById('roomsHeroProgress');
+    const fill = document.getElementById('roomsHeroFill');
+    if (bar) bar.style.display = 'block';
+    const url = await new Promise((resolve, reject) => {
+      const task = uploadBytesResumable(storageRef, fileInput.files[0]);
+      task.on('state_changed',
+        snap => { if (fill) fill.style.width = `${(snap.bytesTransferred / snap.totalBytes) * 100}%`; },
+        reject,
+        async () => { resolve(await getDownloadURL(task.snapshot.ref)); }
+      );
+    });
+    if (bar) { bar.style.display = 'none'; if(fill) fill.style.width = '0%'; }
+
+    // Save URL to Firestore site_settings/page_images
+    await setDoc(doc(db, 'site_settings', 'page_images'), { roomsHeroUrl: url }, { merge: true });
+
+    // Update preview
+    const img = document.getElementById('roomsHeroCurrent');
+    const wrap = document.getElementById('roomsHeroCurrentWrap');
+    if (img) { img.src = url; wrap.style.display = 'block'; }
+
+    showToast('Image saved!');
+  } catch(e) {
+    console.error(e); showToast('Upload failed. Try again.');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Save Image';
+  }
+}
+
+/* ── Page Images: Events Hero ────────────── */
+function previewEventsHero(input) {
+  const file = input.files[0]; if (!file) return;
+  const preview = document.getElementById('eventsHeroFilePreview');
+  const reader = new FileReader();
+  reader.onload = e => { preview.src = e.target.result; preview.style.display = 'block'; };
+  reader.readAsDataURL(file);
+}
+
+async function loadEventsHeroImage() {
+  try {
+    const { db, doc } = window._fb;
+    const { getDoc } = await import('https://www.gstatic.com/firebasejs/11.7.3/firebase-firestore.js');
+    const snap = await getDoc(doc(db, 'site_settings', 'page_images'));
+    if (snap.exists() && snap.data().eventsHeroUrl) {
+      const url = snap.data().eventsHeroUrl;
+      const img = document.getElementById('eventsHeroCurrent');
+      const wrap = document.getElementById('eventsHeroCurrentWrap');
+      if (img) { img.src = url; wrap.style.display = 'block'; }
+    }
+  } catch(e) { console.warn('Could not load events hero:', e); }
+}
+
+async function saveEventsHero() {
+  const fileInput = document.getElementById('eventsHeroFile');
+  if (!fileInput || !fileInput.files || !fileInput.files[0]) {
+    showToast('Please select an image first.'); return;
+  }
+  const btn = document.getElementById('eventsHeroSaveBtn');
+  btn.disabled = true; btn.textContent = 'Uploading…';
+  try {
+    const { storage, ref, uploadBytesResumable, getDownloadURL, db, doc } = window._fb;
+    const { setDoc } = await import('https://www.gstatic.com/firebasejs/11.7.3/firebase-firestore.js');
+
+    const storageRef = ref(storage, `site/events_hero_${Date.now()}`);
+    const bar = document.getElementById('eventsHeroProgress');
+    const fill = document.getElementById('eventsHeroFill');
+    if (bar) bar.style.display = 'block';
+    const url = await new Promise((resolve, reject) => {
+      const task = uploadBytesResumable(storageRef, fileInput.files[0]);
+      task.on('state_changed',
+        snap => { if (fill) fill.style.width = `${(snap.bytesTransferred / snap.totalBytes) * 100}%`; },
+        reject,
+        async () => { resolve(await getDownloadURL(task.snapshot.ref)); }
+      );
+    });
+    if (bar) { bar.style.display = 'none'; if(fill) fill.style.width = '0%'; }
+
+    await setDoc(doc(db, 'site_settings', 'page_images'), { eventsHeroUrl: url }, { merge: true });
+
+    const img = document.getElementById('eventsHeroCurrent');
+    const wrap = document.getElementById('eventsHeroCurrentWrap');
+    if (img) { img.src = url; wrap.style.display = 'block'; }
+
+    showToast('Image saved!');
+  } catch(e) {
+    console.error(e); showToast('Upload failed. Try again.');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Save Image';
+  }
+}
+
+// Load both hero images on tab switch
+const _origSwitchTab = switchTab;
+window.switchTab = function(tab) {
+  _origSwitchTab(tab);
+  if (tab === 'pageimages') { loadRoomsHeroImage(); loadEventsHeroImage(); }
+  if (tab === 'promotions') { loadPromotionsAdmin(); }
+  if (tab === 'requests')   { loadServiceRequests(); }
+};
+
+/* ── Add Booking (Admin) — calendar + discount + auto-calc ── */
+let _abCalMonth = null, _abCalYear = null;
+let _abPickState = 'checkin';
+let _abRooms = [];      // { name, price, id }
+let _abBookedRanges = [];
+
+async function openAddBookingModal() {
+  _abPickState = 'checkin';
+  _abBookedRanges = [];
+  const now = new Date();
+  _abCalMonth = now.getMonth(); _abCalYear = now.getFullYear();
+
+  // Load rooms
+  _abRooms = [];
+  let roomOptions = '<option value="">Select a room…</option>';
+  try {
+    const { db, collection, getDocs, query, orderBy } = window._fb;
+    const snap = await getDocs(query(collection(db, 'rooms'), orderBy('order')));
+    snap.forEach(d => {
+      const r = d.data();
+      _abRooms.push({ id: d.id, name: r.name || d.id, price: r.price || 0 });
+      roomOptions += `<option value="${r.name || d.id}" data-price="${r.price||0}">${r.name || d.id}${r.price ? ' — $' + r.price + '/night' : ''}</option>`;
+    });
+  } catch(e) {}
+
+  openModal('Add Booking');
+  document.getElementById('modalBody').innerHTML = `
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Guest Name <span style="color:var(--copper);">*</span></label>
+        <input class="form-input" id="abName" placeholder="Full name" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Phone <span style="color:var(--copper);">*</span></label>
+        <input type="tel" class="form-input" id="abPhone" placeholder="+1 (876) …" />
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Email <span style="color:var(--copper);">*</span></label>
+      <input type="email" class="form-input" id="abEmail" placeholder="guest@email.com" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">Room <span style="color:var(--copper);">*</span></label>
+      <select class="form-input" id="abRoom" onchange="onAbRoomChange()" style="appearance:none;background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23D4895A' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E\");background-repeat:no-repeat;background-position:right 12px center;padding-right:40px;">
+        ${roomOptions}
+      </select>
+    </div>
+    <!-- Calendar -->
+    <div class="form-group">
+      <label class="form-label">Dates <span style="color:var(--copper);">*</span></label>
+      <div id="abCalendar" style="background:#1A2035;border:1px solid var(--border-copper);border-radius:8px;padding:1rem;margin-top:0.375rem;"></div>
+    </div>
+    <!-- Date strip -->
+    <div id="abDateStrip" style="display:none;background:rgba(37,99,235,0.08);border:1px solid rgba(37,99,235,0.2);border-radius:6px;padding:0.75rem 1rem;margin-bottom:0.75rem;">
+      <div id="abDateStripText" style="font-size:0.82rem;color:#60A5FA;font-weight:600;"></div>
+      <div id="abDateStripSub" style="font-size:0.72rem;color:var(--text-dim);margin-top:2px;"></div>
+    </div>
+    <input type="hidden" id="abCheckIn" />
+    <input type="hidden" id="abCheckOut" />
+    <!-- Discount -->
+    <div class="form-group" id="abDiscountWrap" style="display:none;">
+      <label class="form-label">Discount <span style="font-weight:400;color:var(--text-dim);font-size:0.7rem;">(optional)</span></label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin-bottom:0.5rem;">
+        <div id="abDiscPct" onclick="setAbDiscountType('percent')" style="padding:0.5rem 0.75rem;border-radius:4px;border:1px solid var(--border-copper);font-size:0.7rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--copper-shine);text-align:center;cursor:pointer;background:var(--copper-soft);">% Percentage</div>
+        <div id="abDiscFixed" onclick="setAbDiscountType('fixed')" style="padding:0.5rem 0.75rem;border-radius:4px;border:1px solid var(--border-copper);font-size:0.7rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-dim);text-align:center;cursor:pointer;">$ Fixed Amount</div>
+      </div>
+      <input type="hidden" id="abDiscountType" value="percent" />
+      <input type="number" class="form-input" id="abDiscountValue" placeholder="e.g. 15" min="0" oninput="updateAbPriceSummary()" />
+    </div>
+    <!-- Price summary (auto-calc, read-only) -->
+    <div id="abPriceSummary" style="display:none;background:rgba(184,115,51,0.06);border:1px solid var(--border-copper);border-radius:6px;padding:0.875rem 1rem;margin-bottom:0.75rem;font-size:0.8rem;"></div>
+    <div class="form-group">
+      <label class="form-label">Status</label>
+      <select class="form-input" id="abStatus" style="appearance:none;background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23D4895A' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E\");background-repeat:no-repeat;background-position:right 12px center;padding-right:40px;">
+        <option value="confirmed">Confirmed</option>
+        <option value="pending">Pending</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Special Requests <span style="font-weight:400;color:var(--text-dim);font-size:0.7rem;">(optional)</span></label>
+      <textarea class="form-textarea" id="abRequests" placeholder="Any notes or special requests…" style="min-height:64px;"></textarea>
+    </div>
+    <p id="abError" style="color:var(--danger);font-size:0.75rem;margin-top:-0.25rem;display:none;"></p>`;
+
+  document.getElementById('modalFooter').innerHTML = `
+    <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    <button class="btn btn-copper" id="abSaveBtn" onclick="saveManualBooking()">Save Booking</button>`;
+
+  renderAbCalendar();
+}
+
+function getAbRoomPrice() {
+  const sel = document.getElementById('abRoom');
+  if (!sel || !sel.value) return 0;
+  const opt = sel.options[sel.selectedIndex];
+  return parseFloat(opt?.dataset?.price || 0) || 0;
+}
+
+async function onAbRoomChange() {
+  // Load booked ranges for selected room
+  const roomName = document.getElementById('abRoom')?.value || '';
+  _abBookedRanges = [];
+  if (!roomName) { renderAbCalendar(); updateAbPriceSummary(); return; }
+  try {
+    const { db, collection, getDocs, query, where } = window._fb;
+    const snap = await getDocs(query(collection(db, 'bookings'), where('roomName','==',roomName), where('status','in',['confirmed','pending'])));
+    snap.forEach(d => { const b = d.data(); _abBookedRanges.push({ checkIn: b.checkIn, checkOut: b.checkOut }); });
+  } catch(e) {}
+  // Show discount section now that a room is chosen
+  const dw = document.getElementById('abDiscountWrap');
+  if (dw) dw.style.display = '';
+  // Reset dates
+  document.getElementById('abCheckIn').value = '';
+  document.getElementById('abCheckOut').value = '';
+  _abPickState = 'checkin';
+  renderAbCalendar();
+  updateAbDateStrip();
+  updateAbPriceSummary();
+}
+
+function setAbDiscountType(type) {
+  document.getElementById('abDiscountType').value = type;
+  const pct   = document.getElementById('abDiscPct');
+  const fixed = document.getElementById('abDiscFixed');
+  const inp   = document.getElementById('abDiscountValue');
+  if (type === 'percent') {
+    pct.style.background='var(--copper-soft)'; pct.style.color='var(--copper-shine)'; pct.style.borderColor='var(--copper)';
+    fixed.style.background=''; fixed.style.color='var(--text-dim)'; fixed.style.borderColor='var(--border-copper)';
+    inp.placeholder='e.g. 15 (%)'; inp.max=100;
+  } else {
+    fixed.style.background='var(--copper-soft)'; fixed.style.color='var(--copper-shine)'; fixed.style.borderColor='var(--copper)';
+    pct.style.background=''; pct.style.color='var(--text-dim)'; pct.style.borderColor='var(--border-copper)';
+    inp.placeholder='e.g. 50 ($)'; inp.removeAttribute('max');
+  }
+  updateAbPriceSummary();
+}
+
+function abCalNav(delta) {
+  _abCalMonth += delta;
+  if (_abCalMonth > 11) { _abCalMonth = 0; _abCalYear++; }
+  if (_abCalMonth < 0)  { _abCalMonth = 11; _abCalYear--; }
+  renderAbCalendar();
+}
+
+function abCalSelectDate(dateStr) {
+  const ci = document.getElementById('abCheckIn').value;
+  if (_abPickState === 'checkin' || !ci) {
+    document.getElementById('abCheckIn').value = dateStr;
+    document.getElementById('abCheckOut').value = '';
+    _abPickState = 'checkout';
+  } else {
+    if (dateStr <= ci) {
+      document.getElementById('abCheckIn').value = dateStr;
+      document.getElementById('abCheckOut').value = '';
+      _abPickState = 'checkout';
+    } else {
+      const blocked = _abBookedRanges.some(r => ci < r.checkOut && dateStr > r.checkIn);
+      if (blocked) {
+        document.getElementById('abCheckIn').value = dateStr;
+        document.getElementById('abCheckOut').value = '';
+        _abPickState = 'checkout';
+      } else {
+        document.getElementById('abCheckOut').value = dateStr;
+        _abPickState = 'checkin';
+      }
+    }
+  }
+  renderAbCalendar();
+  updateAbDateStrip();
+  updateAbPriceSummary();
+}
+
+function renderAbCalendar() {
+  const cal = document.getElementById('abCalendar');
+  if (!cal) return;
+  const now = new Date();
+  const year = _abCalYear, month = _abCalMonth;
+  const monthName = new Date(year, month).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const ciVal = document.getElementById('abCheckIn')?.value || '';
+  const coVal = document.getElementById('abCheckOut')?.value || '';
+  const todayStr = window._localToday();
+  const atCurrent = (year === now.getFullYear() && month === now.getMonth());
+
+  function isBooked(ds) { return _abBookedRanges.some(r => ds >= r.checkIn && ds < r.checkOut); }
+
+  let html = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.625rem;">
+    <button onclick="abCalNav(-1)" ${atCurrent?'disabled style="opacity:0.25;cursor:default;width:28px;height:28px;border-radius:5px;border:1px solid var(--border-copper);background:rgba(255,255,255,0.04);font-size:1rem;color:var(--text-dim);"':'style="width:28px;height:28px;border-radius:5px;border:1px solid var(--border-copper);background:rgba(255,255,255,0.04);cursor:pointer;color:var(--copper-shine);font-size:1rem;"'}>&#8249;</button>
+    <div style="font-size:0.8rem;font-weight:700;color:var(--text);letter-spacing:0.03em;">${monthName}</div>
+    <button onclick="abCalNav(1)" style="width:28px;height:28px;border-radius:5px;border:1px solid var(--border-copper);background:rgba(255,255,255,0.04);cursor:pointer;color:var(--copper-shine);font-size:1rem;">&#8250;</button>
+  </div><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;">`;
+  ['Su','Mo','Tu','We','Th','Fr','Sa'].forEach(d => { html += `<div style="text-align:center;font-size:0.6rem;font-weight:700;color:var(--text-dim);padding:4px 0;text-transform:uppercase;letter-spacing:0.06em;">${d}</div>`; });
+  for (let i = 0; i < firstDay; i++) html += '<div></div>';
+  for (let d = 1; d <= daysInMonth; d++) {
+    const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const isPast = ds < todayStr;
+    const booked = isBooked(ds);
+    const isCi = ds === ciVal, isCo = ds === coVal;
+    const inRange = ciVal && coVal && ds > ciVal && ds < coVal;
+    if (isPast || booked) {
+      html += `<div style="text-align:center;padding:6px 2px;font-size:0.75rem;border-radius:5px;color:var(--text-dim);text-decoration:line-through;cursor:not-allowed;user-select:none;" title="${booked?'Booked':''}">${d}</div>`;
+    } else if (isCi || isCo) {
+      html += `<div onclick="abCalSelectDate('${ds}')" style="text-align:center;padding:6px 2px;font-size:0.75rem;border-radius:5px;background:#1D4ED8;color:#fff;font-weight:700;cursor:pointer;user-select:none;">${d}</div>`;
+    } else if (inRange) {
+      html += `<div onclick="abCalSelectDate('${ds}')" style="text-align:center;padding:6px 2px;font-size:0.75rem;border-radius:5px;background:rgba(37,99,235,0.2);color:#60A5FA;font-weight:600;cursor:pointer;user-select:none;">${d}</div>`;
+    } else {
+      html += `<div onclick="abCalSelectDate('${ds}')" style="text-align:center;padding:6px 2px;font-size:0.75rem;border-radius:5px;background:rgba(37,99,235,0.08);color:#60A5FA;font-weight:600;border:1px solid rgba(37,99,235,0.2);cursor:pointer;user-select:none;" onmouseover="this.style.background='rgba(37,99,235,0.2)'" onmouseout="this.style.background='rgba(37,99,235,0.08)'">${d}</div>`;
+    }
+  }
+  const instruction = !ciVal ? 'Tap a date to set check-in' : (!coVal ? 'Now tap check-out date' : 'Tap any date to change');
+  html += `</div><div style="display:flex;align-items:center;justify-content:space-between;margin-top:0.75rem;flex-wrap:wrap;gap:0.5rem;">
+    <div style="display:flex;gap:1rem;font-size:0.65rem;color:var(--text-dim);">
+      <span style="display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:10px;height:10px;background:rgba(37,99,235,0.12);border:1px solid rgba(37,99,235,0.3);border-radius:2px;"></span>Available</span>
+      <span style="display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:10px;height:10px;background:rgba(255,255,255,0.05);border-radius:2px;"></span>Unavailable</span>
+      ${ciVal?`<span style="display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:10px;height:10px;background:#1D4ED8;border-radius:2px;"></span>Selected</span>`:''}
+    </div>
+    <span style="font-size:0.65rem;color:var(--copper-shine);font-style:italic;">${instruction}</span>
+  </div>`;
+  cal.innerHTML = html;
+}
+
+function updateAbDateStrip() {
+  const ci = document.getElementById('abCheckIn')?.value || '';
+  const co = document.getElementById('abCheckOut')?.value || '';
+  const strip = document.getElementById('abDateStrip');
+  const txt   = document.getElementById('abDateStripText');
+  const sub   = document.getElementById('abDateStripSub');
+  if (!strip) return;
+  const fmt = s => { const [y,m,d] = s.split('-'); return new Date(y,m-1,d).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'}); };
+  if (!ci && !co) { strip.style.display = 'none'; return; }
+  strip.style.display = 'block';
+  if (ci && !co) {
+    txt.innerHTML = `<span style="opacity:0.6;font-weight:500;">Check-In:</span> ${fmt(ci)}`;
+    sub.textContent = 'Now tap a check-out date';
+  } else if (ci && co) {
+    const nights = Math.round((new Date(co)-new Date(ci))/86400000);
+    txt.innerHTML = `<span style="opacity:0.6;font-weight:500;">Check-In:</span> ${fmt(ci)} &nbsp;→&nbsp; <span style="opacity:0.6;font-weight:500;">Check-Out:</span> ${fmt(co)}`;
+    sub.textContent = `${nights} night${nights!==1?'s':''} · Tap any date to change`;
+  }
+}
+
+function updateAbPriceSummary() {
+  const ci = document.getElementById('abCheckIn')?.value || '';
+  const co = document.getElementById('abCheckOut')?.value || '';
+  const el = document.getElementById('abPriceSummary');
+  if (!el || !ci || !co || co <= ci) { if(el) el.style.display='none'; return; }
+  const nights = Math.round((new Date(co)-new Date(ci))/86400000);
+  if (nights <= 0) { el.style.display='none'; return; }
+  const price = getAbRoomPrice();
+  if (!price) { el.style.display='none'; return; }
+  const base = price * nights;
+  const discType  = document.getElementById('abDiscountType')?.value || 'percent';
+  const discVal   = parseFloat(document.getElementById('abDiscountValue')?.value) || 0;
+  let discAmt = 0;
+  if (discVal > 0) {
+    discAmt = discType === 'percent' ? Math.round(base * discVal / 100) : Math.min(discVal, base);
+  }
+  const total = base - discAmt;
+  let html = `<div style="display:flex;justify-content:space-between;color:var(--text-2);margin-bottom:4px;"><span>${nights} night${nights!==1?'s':''} × $${price}</span><span>$${base.toLocaleString()}</span></div>`;
+  if (discAmt > 0) html += `<div style="display:flex;justify-content:space-between;color:var(--success);margin-bottom:4px;"><span>Discount (${discType==='percent'?discVal+'%':'$'+discVal+' off'})</span><span>-$${discAmt.toLocaleString()}</span></div>`;
+  html += `<div style="display:flex;justify-content:space-between;color:var(--text);font-weight:700;border-top:1px solid var(--border-copper);padding-top:6px;margin-top:2px;"><span>Total</span><span style="color:var(--copper-shine);">$${total.toLocaleString()}</span></div>`;
+  el.innerHTML = html; el.style.display='block';
+}
+
+async function saveManualBooking() {
+  const name    = (document.getElementById('abName')?.value || '').trim();
+  const phone   = (document.getElementById('abPhone')?.value || '').trim();
+  const email   = (document.getElementById('abEmail')?.value || '').trim();
+  const room    = (document.getElementById('abRoom')?.value || '').trim();
+  const checkIn = document.getElementById('abCheckIn')?.value || '';
+  const checkOut= document.getElementById('abCheckOut')?.value || '';
+  const status  = document.getElementById('abStatus')?.value || 'confirmed';
+  const requests= (document.getElementById('abRequests')?.value || '').trim();
+  const discType  = document.getElementById('abDiscountType')?.value || 'percent';
+  const discVal   = parseFloat(document.getElementById('abDiscountValue')?.value) || 0;
+  const price     = getAbRoomPrice();
+
+  const errEl = document.getElementById('abError');
+  errEl.style.display = 'none';
+
+  if (!name)    { errEl.textContent='Please enter the guest name.'; errEl.style.display='block'; return; }
+  if (!phone)   { errEl.textContent='Please enter a phone number.'; errEl.style.display='block'; return; }
+  if (!email)   { errEl.textContent='Please enter an email address.'; errEl.style.display='block'; return; }
+  if (!room)    { errEl.textContent='Please select a room.'; errEl.style.display='block'; return; }
+  if (!checkIn || !checkOut) { errEl.textContent='Please select check-in and check-out dates on the calendar.'; errEl.style.display='block'; return; }
+  if (new Date(checkOut) <= new Date(checkIn)) { errEl.textContent='Check-out must be after check-in.'; errEl.style.display='block'; return; }
+
+  const nights = Math.round((new Date(checkOut)-new Date(checkIn))/86400000);
+  const base   = price * nights;
+  let discAmt  = 0;
+  if (discVal > 0 && price > 0) {
+    discAmt = discType === 'percent' ? Math.round(base * discVal / 100) : Math.min(discVal, base);
+  }
+  const total = price > 0 ? base - discAmt : null;
+
+  const btn = document.getElementById('abSaveBtn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+
+  try {
+    const { db, collection, addDoc, serverTimestamp } = window._fb;
+    await addDoc(collection(db, 'bookings'), {
+      guestName: name, phone, email, roomName: room,
+      checkIn, checkOut, nights,
+      pricePerNight: price || null,
+      baseTotal: price ? base : null,
+      discountType: discVal > 0 ? discType : null,
+      discountValue: discVal > 0 ? discVal : null,
+      discountApplied: discAmt || 0,
+      total, status,
+      specialRequests: requests || null,
+      addedByAdmin: true,
+      createdAt: serverTimestamp()
+    });
+    closeModal(); showToast('Booking added!'); await loadBookings();
+  } catch(e) {
+    errEl.textContent = 'Failed to save: ' + e.message; errEl.style.display='block';
+    btn.disabled=false; btn.textContent='Save Booking';
+  }
+}
+</script>
+</body>
+</html>
